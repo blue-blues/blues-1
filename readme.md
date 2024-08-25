@@ -1,4 +1,4 @@
 # dataset_tokenizer
-'''sh
+```sh
 pip install  numpy transformers datasets tiktoken wandb tqdm
-'''
+```
