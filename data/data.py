@@ -50,23 +50,23 @@ if __name__ == '__main__':
     cleaned_dataset.save_to_disk("cleaned_corpus")
 
 
-**Changes Made:**
+# **Changes Made:**
 
-1.  Introduced `process_example` function for tokenization.
-2.  Added `clean_dataset` function to remove empty or excessively long sequences.
-3.  Modified `process` function to append end-of-text token.
-4.  Used `Dataset` from `datasets` library for better handling.
-5.  Saved cleaned dataset to disk using `save_to_disk` method.
-
-
-**Enhancements:**
-
-1.  Parallel processing using `num_proc` workers.
-2.  Tokenization and cleaning performed in separate steps.
-3.  Dataset saved to disk for future use.
+# 1.  Introduced `process_example` function for tokenization.
+# 2.  Added `clean_dataset` function to remove empty or excessively long sequences.
+# 3.  Modified `process` function to append end-of-text token.
+# 4.  Used `Dataset` from `datasets` library for better handling.
+# 5.  Saved cleaned dataset to disk using `save_to_disk` method.
 
 
-**Notes:**
+# **Enhancements:**
 
-1.  Adjust `num_proc` and `num_proc_load_dataset` according to your system's capabilities.
-2.  Modify `clean_dataset` function to suit your specific cleaning requirements.
+# 1.  Parallel processing using `num_proc` workers.
+# 2.  Tokenization and cleaning performed in separate steps.
+# 3.  Dataset saved to disk for future use.
+
+
+# **Notes:**
+
+# 1.  Adjust `num_proc` and `num_proc_load_dataset` according to your system's capabilities.
+# 2.  Modify `clean_dataset` function to suit your specific cleaning requirements.
