@@ -8,8 +8,8 @@ from datasets import load_dataset, Dataset
 num_proc = 8
 num_proc_load_dataset = num_proc
 
-# Initialize GPT-2 tokenizer
-enc = tiktoken.get_encoding("gpt2")
+# Initialize tiktoken o200k_base tokenizer
+enc = tiktoken.get_encoding("o200k_base")
 
 
 def process_example(example):
@@ -27,7 +27,7 @@ def clean_dataset(dataset):
 
 if __name__ == '__main__':
     # Load BookCorpus dataset
-    dataset = load_dataset("jxie/bookcorpus", num_proc=num_proc_load_dataset)
+    dataset = load_dataset("Shahzebbb/redpajama_100gb_processed", num_proc=num_proc_load_dataset)
 
     # Split dataset into training and validation sets
     split_dataset = dataset["train"].train_test_split(test_size=0.0005, seed=2357, shuffle=True)
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     )
 
     # Save cleaned dataset to disk
-    cleaned_dataset.save_to_disk("cleaned_bookcorpus")
+    cleaned_dataset.save_to_disk("cleaned_corpus")
 
 
 **Changes Made:**
