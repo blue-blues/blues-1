@@ -2,6 +2,7 @@ import torch
 from torch.cuda.amp import autocast
 import torch.nn as nn
 from setting import flash_optimizations
+from contextlib import contextmanager
 
 class MemoryOptimizer:
     @staticmethod
@@ -15,6 +16,17 @@ class MemoryOptimizer:
             try:
                 # Scale input to test batch size
                 test_input = sample_input.repeat(mid // sample_input.shape[0] + 1, 1)[:mid]
+                
+                # Ensure model is in float32
+                model = model.float()
+                
+                # Convert test input to proper dtypes
+                if isinstance(test_input, tuple):
+                    test_input = tuple(t.long() if i == 0 else t.float() 
+                                     for i, t in enumerate(test_input))
+                else:
+                    test_input = test_input.long()
+                
                 with torch.no_grad():
                     model(test_input)
                 left = mid + 1
@@ -105,3 +117,38 @@ class ModelOptimizations:
         except ImportError:
             print("bitsandbytes not available, skipping 8-bit optimization")
             return model
+
+@contextmanager
+def optimize_model_for_inference(model):
+    """Context manager to optimize model for inference"""
+    # Store original training state
+    training = model.training
+    
+    try:
+        # Set to eval mode
+        model.eval()
+        
+        # Disable gradient computation
+        with torch.no_grad():
+            # Optimize memory usage
+            if hasattr(model, 'config'):
+                # Disable dropout
+                model.config.dropout = 0
+                
+                # Enable memory efficient attention if available
+                if hasattr(model.config, 'mem_efficient'):
+                    model.config.mem_efficient = True
+            
+            # Fuse attention operations if possible
+            for module in model.modules():
+                if hasattr(module, 'enable_fused_attention'):
+                    module.enable_fused_attention()
+            
+            yield model
+            
+    finally:
+        # Restore original training state
+        model.train(training)
+        if hasattr(model, 'config'):
+            # Restore original dropout
+            model.config.dropout = getattr(model.config, '_original_dropout', 0.1)

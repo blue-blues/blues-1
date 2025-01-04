@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -169,3 +170,36 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+=======
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Checkpoints and data
+checkpoints/
+data_cache/
+*.pt
+*.bin
+*.pkl
+
+# Environment
+.env
+venv/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs and temp
+*.log
+tmp/
+
+# Local configs
+ds_config*.json
+.DS_Store
+
+# Training artifacts
+wandb/
+outputs/
+>>>>>>> de13c3e (Initial commit: Blues MoE Language Model)

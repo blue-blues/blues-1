@@ -3,14 +3,61 @@ from model import blues
 from config import config
 from data import encoder
 import argparse
-from $FEDXAS=- aimport optimize_model_for_inference
+from optimize import optimize_model_for_inference  # Now this import will work
+import os
+
+# Define checkpoint directory if not in config
+checkpoint_dir = getattr(config, 'checkpoint_dir', os.path.join(os.path.dirname(__file__), 'checkpoints'))
+
+def verify_checkpoint(checkpoint_path):
+    """Verify checkpoint file integrity"""
+    try:
+        if not os.path.exists(checkpoint_path):
+            return False, "Checkpoint file does not exist"
+            
+        if os.path.getsize(checkpoint_path) == 0:
+            return False, "Checkpoint file is empty"
+            
+        # Try loading with weights_only
+        try:
+            torch.load(checkpoint_path, map_location='cpu', weights_only=True)
+            return True, None
+        except Exception:
+            return False, "Invalid checkpoint format"
+    except Exception as e:
+        return False, f"Error verifying checkpoint: {str(e)}"
 
 def load_model(checkpoint_path):
     """Load the trained model from checkpoint"""
+    # Resolve checkpoint path
+    if not os.path.isabs(checkpoint_path):
+        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_path)
+    
+    # Verify checkpoint
+    is_valid, error_msg = verify_checkpoint(checkpoint_path)
+    if not is_valid:
+        raise ValueError(f"Invalid checkpoint: {error_msg}")
+    
+    print(f"Loading checkpoint from: {checkpoint_path}")
     model = blues(config, encoder)
-    checkpoint = torch.load(checkpoint_path, map_location=config.device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=config.device, weights_only=True)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print("Successfully loaded model weights")
+    except Exception as e:
+        print(f"Error loading checkpoint: {e}")
+        # Try to find a valid backup checkpoint
+        for backup in ['best_model.pt', 'latest.pt']:
+            backup_path = os.path.join(checkpoint_dir, backup)
+            is_valid, _ = verify_checkpoint(backup_path)
+            if is_valid:
+                print(f"Attempting to load backup checkpoint: {backup}")
+                return load_model(backup_path)
+        raise
+        
     model.to(config.device)
+    model.eval()  # Set to evaluation mode
     
     # Apply inference optimizations
     with optimize_model_for_inference(model):

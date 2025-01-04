@@ -1,43 +1,26 @@
-# Blues: Mixture of Experts Language Model
+# Blues-01: MoE Language Model
 
-Blues is a language model that combines Multi-Query Attention (MQA) with Mixture of Experts (MoE) architecture, designed for efficient and scalable natural language processing.
+A PyTorch implementation of a Mixture of Experts (MoE) language model with multi-query attention and memory-efficient training.
 
-## Architecture Overview
+## Features
 
-### Key Components
+- Mixture of Experts (MoE) architecture for efficient scaling
+- Multi-Query Attention (MQA) for reduced memory usage
+- Memory-efficient training with chunked datasets
+- Tiktoken o200k_base tokenizer integration
+- Dynamic batch sizing and gradient accumulation
+- FlashAttention support (optional)
+- RMSNorm and rotary position embeddings
 
-1. **Multi-Query Attention (MQA)**
-   - Supports different numbers of attention heads for queries and key-values
-   - Uses rotary positional embeddings (RoPE)
-   - Configurable number of attention heads and key-value heads
-   - Optional Flash Attention support for improved performance
+## Architecture
 
-2. **Mixture of Experts (MoE)**
-   - Dynamic routing between experts
-   - Configurable number of total experts and active experts per token
-   - Gated expert networks with GeLU activation
-   - Noise-based exploration during training
-
-3. **Model Structure**
-   - Embedding layer with scaled initialization
-   - Multiple decoder layers with MQA and MoE
-   - RMSNorm for layer normalization
-   - Shared embedding weights for input and output
-
-### Technical Specifications
-
-```python
-# Default Configuration
-vocab_size = 200019
-max_position_embeddings = 256
-num_layers = 4
-hidden_size = 192
-head_dim = 48
-num_attention_heads = 4
-num_key_value_heads = 2
-tot_num_experts = 4
-chosen_num_experts = 1
-```
+- Vocab size: 200k (tiktoken o200k_base)
+- Model dimensions: 768
+- Attention heads: 12
+- Layers: 12 (alternating MoE layers)
+- Experts: 8 per MoE layer
+- Expert routing: Top-2 routing with noise
+- Position embeddings: Rotary (RoPE)
 
 ## Requirements
 
@@ -57,9 +40,9 @@ triton>=2.0.0
 ```bash
 pip install -r requirements.txt
 ```
-
-2. Prepare your dataset in CSV format with a 'Text' column.
-
+```
+python data.py --input_dir data/raw --cache_dir data_cache
+```
 3. Update configuration in `config.py` if needed.
 
 ### Running Training

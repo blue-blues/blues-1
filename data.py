@@ -146,6 +146,55 @@ if __name__ == "__main__":
     else:
         print("Failed to preprocess dataset. Please check the errors above.")
 
+def verify_chunk_integrity(chunk_data):
+    """Verify that a chunk's data is valid"""
+    if not isinstance(chunk_data, list):
+        return False
+    return all(isinstance(token, int) and 0 <= token < encoder.n_vocab for token in chunk_data)
+
+class ChunkedDatasetManager:
+    """Manages dataset chunks and provides recovery mechanisms"""
+    
+    def __init__(self, cache_dir):
+        self.cache_dir = cache_dir
+        self.corrupted_chunks = set()
+        self.metadata = None
+        self.load_metadata()
+    
+    def load_metadata(self):
+        """Load dataset metadata"""
+        metadata_file = os.path.join(self.cache_dir, 'metadata.pkl')
+        try:
+            with open(metadata_file, 'rb') as f:
+                self.metadata = pickle.load(f)
+        except Exception as e:
+            print(f"Error loading metadata: {e}")
+            self.metadata = None
+    
+    def repair_chunk(self, chunk_num, pattern):
+        """Attempt to repair a corrupted chunk"""
+        try:
+            # Load the corrupted chunk
+            chunk_data = load_chunk(pattern, chunk_num)
+            
+            # Filter out invalid tokens
+            valid_data = [token for token in chunk_data 
+                         if isinstance(token, int) and 0 <= token < encoder.n_vocab]
+            
+            # Ensure minimum length
+            if len(valid_data) < 100:  # Minimum viable chunk size
+                valid_data = [PAD_TOKEN] * 1000  # Create safe fallback chunk
+            
+            # Save repaired chunk
+            save_chunk(valid_data, pattern, chunk_num)
+            self.corrupted_chunks.remove(chunk_num)
+            print(f"Repaired chunk {chunk_num}")
+            return True
+        except Exception as e:
+            print(f"Failed to repair chunk {chunk_num}: {e}")
+            return False
+
+# Enhance ChunkedDataset with error recovery
 class ChunkedDataset:
     def __init__(self, pattern, num_chunks, max_seq_len, chunk_size):
         self.pattern = pattern
@@ -159,43 +208,91 @@ class ChunkedDataset:
         self.end_token = END_TOKEN
         self.pad_token = PAD_TOKEN
         self.vocab_size = encoder.n_vocab  # Add vocab_size for validation
+        self.manager = ChunkedDatasetManager(os.path.dirname(pattern))
+        self.failed_loads = 0
+        self.max_failed_loads = 3
     
     def load_random_chunk(self):
-        """Load a random chunk from disk"""
-        try:
-            chunk_num = torch.randint(0, self.num_chunks, (1,)).item()
-            self.current_chunk = load_chunk(self.pattern, chunk_num)
-            self.current_chunk_num = chunk_num
-        except Exception as e:
-            print(f"Error loading chunk {chunk_num}: {e}")
-            # Create an emergency chunk if loading fails
-            self.current_chunk = [self.pad_token] * (self.max_seq_len * 2)
-            self.current_chunk_num = -1
+        """Load a random chunk with error recovery"""
+        attempts = 0
+        max_attempts = 3
+        
+        while attempts < max_attempts:
+            try:
+                chunk_num = torch.randint(0, self.num_chunks, (1,)).item()
+                
+                # Skip known corrupted chunks
+                if chunk_num in self.manager.corrupted_chunks:
+                    continue
+                
+                chunk_data = load_chunk(self.pattern, chunk_num)
+                
+                # Verify chunk integrity
+                if verify_chunk_integrity(chunk_data):
+                    self.current_chunk = chunk_data
+                    self.current_chunk_num = chunk_num
+                    self.failed_loads = 0  # Reset counter on success
+                    return
+                else:
+                    # Mark chunk as corrupted and attempt repair
+                    self.manager.corrupted_chunks.add(chunk_num)
+                    self.manager.repair_chunk(chunk_num, self.pattern)
+            
+            except Exception as e:
+                print(f"Error loading chunk {chunk_num} (attempt {attempts + 1}): {e}")
+                attempts += 1
+                self.failed_loads += 1
+                
+                # If too many failures, reinitialize datasets
+                if self.failed_loads >= self.max_failed_loads:
+                    print("Too many failed loads, reinitializing datasets...")
+                    global datasets
+                    datasets = None
+                    break
+        
+        # If all attempts fail, use safe fallback
+        print("Using fallback chunk after failed loads")
+        self.current_chunk = [self.pad_token] * (self.max_seq_len * 2)
+        self.current_chunk_num = -1
     
     def get_batch(self, batch_size, device):
-        if self.current_chunk is None or len(self.current_chunk) < self.max_seq_len:
-            self.load_random_chunk()
-            
-        max_start_idx = len(self.current_chunk) - self.max_seq_len - 1
-        if max_start_idx <= 0:
-            return self.get_batch(batch_size, device)
+        """Get a batch with improved validation"""
+        for attempt in range(3):
+            try:
+                if self.current_chunk is None or len(self.current_chunk) < self.max_seq_len:
+                    self.load_random_chunk()
+                
+                max_start_idx = len(self.current_chunk) - self.max_seq_len - 1
+                if max_start_idx <= 0:
+                    self.load_random_chunk()
+                    continue
+                
+                # Generate random indices
+                ix = torch.randint(0, max_start_idx, (batch_size,))
+                
+                # Create batches with explicit type
+                x = torch.stack([
+                    torch.tensor(self._validate_tokens(
+                        self.current_chunk[i:i+self.max_seq_len]
+                    ), dtype=torch.long)
+                    for i in ix
+                ])
+                
+                y = torch.stack([
+                    torch.tensor(self._validate_tokens(
+                        self.current_chunk[i+1:i+self.max_seq_len+1]
+                    ), dtype=torch.long)
+                    for i in ix
+                ])
+                
+                return x, y
+                
+            except Exception as e:
+                print(f"ChunkedDataset batch attempt {attempt + 1} failed: {str(e)}")
+                if attempt == 2:
+                    return self._get_fallback_batch(batch_size, device)
         
-        try:
-            ix = torch.randint(0, max_start_idx, (batch_size,))
-            x = torch.stack([torch.tensor(
-                self._validate_tokens(self.current_chunk[i:i+self.max_seq_len])
-            ) for i in ix])
-            y = torch.stack([torch.tensor(
-                self._validate_tokens(self.current_chunk[i+1:i+self.max_seq_len+1])
-            ) for i in ix])
-            
-            if device != 'cpu':
-                x, y = x.to(device), y.to(device)
-            return x, y
-        except Exception as e:
-            print(f"Error in get_batch: {e}")
-            # Return a safe fallback batch
-            return self._get_fallback_batch(batch_size, device)
+        return self._get_fallback_batch(batch_size, device)
     
     def _validate_tokens(self, tokens):
         """Ensure all tokens are within vocabulary range"""
@@ -234,10 +331,38 @@ def init_datasets(max_seq_len):
         )
     }
 
-def get_batch(split, batch_size, max_seq_len, device):
-    """Get a batch of data from the specified split"""
+def reinitialize_datasets():
+    """Force reinitialization of datasets"""
     global datasets
-    if datasets is None:
-        print("Initializing datasets...")
-        datasets = init_datasets(max_seq_len)
-    return datasets[split].get_batch(batch_size, device)
+    datasets = None
+    print("Datasets will be reinitialized on next batch request")
+
+# Update get_batch function with error recovery
+def get_batch(split, batch_size, max_seq_len, device):
+    """Get a batch of data with proper device handling"""
+    global datasets
+    
+    try:
+        if datasets is None:
+            print("Initializing datasets...")
+            datasets = init_datasets(max_seq_len)
+        
+        # Get batch on CPU first
+        x, y = datasets[split].get_batch(batch_size, 'cpu')
+        
+        # Ensure correct dtype
+        x = x.long()
+        y = y.long()
+        
+        # Move to specified device
+        x = x.to(device)
+        y = y.to(device)
+        
+        return x, y
+        
+    except Exception as e:
+        print(f"Error in get_batch: {e}")
+        # Return fallback batch on correct device
+        x = torch.full((batch_size, max_seq_len), PAD_TOKEN, dtype=torch.long, device=device)
+        y = torch.full((batch_size, max_seq_len), PAD_TOKEN, dtype=torch.long, device=device)
+        return x, y

@@ -5,26 +5,38 @@ from contextlib import contextmanager
 class MemoryManager:
     def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu'):
         self.device = device
+        self.peak_memory = 0
     
     def clear_memory(self):
-        """Clear unused memory"""
+        """Aggressive memory cleanup"""
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
         gc.collect()
+        
+    def check_memory(self, threshold_mb=1000):
+        """Check if memory usage is too high"""
+        if torch.cuda.is_available():
+            current = torch.cuda.memory_allocated() / 1024**2
+            peak = torch.cuda.max_memory_allocated() / 1024**2
+            if current > threshold_mb:
+                print(f"Warning: High memory usage - Current: {current:.1f}MB, Peak: {peak:.1f}MB")
+                return True
+        return False
     
     @contextmanager
-    def track_memory(self):
-        """Context manager to track memory usage"""
-        try:
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
-                torch.cuda.empty_cache()
-            yield
-        finally:
-            if torch.cuda.is_available():
-                peak_memory = torch.cuda.max_memory_allocated() / 1024**2
-                print(f"Peak memory usage: {peak_memory:.2f}MB")
-                self.clear_memory()
+    def monitor_memory(self, label=""):
+        """Context manager for monitoring memory usage"""
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            start_mem = torch.cuda.memory_allocated()
+            try:
+                yield
+            finally:
+                end_mem = torch.cuda.memory_allocated()
+                peak_mem = torch.cuda.max_memory_allocated()
+                print(f"{label} Memory change: {(end_mem-start_mem)/1024**2:.1f}MB "
+                      f"(Peak: {peak_mem/1024**2:.1f}MB)")
 
 class MemoryEfficientLoader:
     def __init__(self, chunk_size):

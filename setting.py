@@ -15,21 +15,23 @@ DEFAULT_SETTINGS = {
     # Training settings
     'learning_rate': 3e-4,
     'dropout': 0.1,
-    'batch_size': 32,
+    'batch_size': 16,         # Reduced from 32
     'weight_decay': 0.02,
     'max_iters': 50000,
     'eval_interval': 500,
     'save_interval': 1000,
-    'warmup_steps': 100,
+    'warmup_steps': 1000,
     'lr_decay_steps': 1000,
     'min_lr': 3e-5,
-    'gradient_accumulation_steps': 4,  # Add this line
+    'gradient_accumulation_steps': 8,  # Increased from 4
+    'max_grad_norm': 1.0,
+    'min_batch_size': 4,
 
     # Data settings
     'dataset': "df_file.csv",
     'data_cache_dir': "data_cache",
-    'chunk_size': 1000,
-    'chunk_memory_limit': 1024 * 1024 * 512,  # 512MB
+    'chunk_size': 500,        # Reduced from 1000
+    'chunk_memory_limit': 256 * 1024 * 1024,  # 256MB per chunk
     'verify_data_loading': True,
     'checkpoint_dir': "checkpoints",
     'data_source': 'csv',  # Options: 'csv', 'huggingface'
@@ -62,7 +64,7 @@ DEFAULT_SETTINGS = {
             'end_token': '<|end|>',
             'pad_token': '<|pad|>',
         },
-        'max_seq_length': 2048,  # Maximum sequence length for the model
+        'max_seq_length': 512,  # Reduced from 2048
         'add_special_tokens': True,
     },
 
@@ -71,7 +73,7 @@ DEFAULT_SETTINGS = {
         'use_flash_attn': True,
         'mem_efficient': True,
         'enable_tiling': True,
-        'tile_size': 256,
+        'tile_size': 128,     # Reduced from 256
         'use_cuda_fp16': True,
     },
 
@@ -79,8 +81,12 @@ DEFAULT_SETTINGS = {
     'optimizer_config': {
         'betas': (0.9, 0.95),
         'eps': 1e-8,
-        'weight_decay': 0.1
+        'weight_decay': 0.1,
+        # Remove capturable setting as it's not supported on CPU
     },
+
+    # Memory management
+    'memory_limit_mb': 12000,  # 12GB limit (leaving 3GB for system)
 }
 
 # Initialize all settings as module-level variables
@@ -101,3 +107,11 @@ optimizer_config = DEFAULT_SETTINGS.get('optimizer_config', {})
 
 # Make gradient_accumulation_steps available globally
 gradient_accumulation_steps = DEFAULT_SETTINGS['gradient_accumulation_steps']
+warmup_steps = DEFAULT_SETTINGS['warmup_steps']
+max_grad_norm = DEFAULT_SETTINGS['max_grad_norm']
+min_batch_size = DEFAULT_SETTINGS['min_batch_size']
+
+# Memory management
+memory_limit_mb = 12000  # 12GB limit
+min_batch_size = 2
+max_batch_size = 32

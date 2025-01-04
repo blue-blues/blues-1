@@ -4,7 +4,8 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from data import *
 from moe import *
-from config import config
+# Remove circular import
+# from config import config  # Remove this line
 from typing import Optional, Tuple
 import math
 
@@ -26,10 +27,23 @@ class blues(nn.Module):
         self.gradient_checkpointing = False
         self.support_gradient_checkpointing = True
 
+        # Ensure all parameters are initialized as float32
+        for param in self.parameters():
+            param.data = param.data.to(torch.float32)
+        
+        # Convert embeddings explicitly
+        self.embedder.weight.data = self.embedder.weight.data.to(torch.float32)
+        self.pos_embedding.weight.data = self.pos_embedding.weight.data.to(torch.float32)
+
     def _validate_input(self, input_ids):
         """Validate and clean input token IDs"""
-        if torch.any(input_ids >= self.vocab_size):
-            print(f"Warning: Found tokens outside vocab range. Max token: {input_ids.max()}")
+        input_ids = input_ids.to(torch.long)  # Ensure long dtype for embeddings
+        max_token = input_ids.max()
+        if max_token >= self.vocab_size:
+            # Check if the tokens are special tokens
+            if max_token <= self.config.pad_token_id:  # Assuming pad_token_id is the highest special token
+                return input_ids
+            print(f"Warning: Found tokens outside vocab range. Max token: {max_token}")
             return torch.clamp(input_ids, 0, self.vocab_size - 1)
         return input_ids
 
@@ -56,6 +70,11 @@ class blues(nn.Module):
         input_token_ids = self._validate_input(input_token_ids)
         if target_token_ids is not None:
             target_token_ids = self._validate_input(target_token_ids)
+        
+        # Ensure input dtypes
+        input_token_ids = input_token_ids.to(torch.long)
+        if target_token_ids is not None:
+            target_token_ids = target_token_ids.to(torch.long)
         
         # Apply both token and position embeddings
         token_embeddings = self.embedder(input_token_ids)
@@ -151,7 +170,13 @@ class DecoderLayer(nn.Module):
         self.post_moe_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, use_scale=config.use_scale)
         self.drop = nn.Dropout(config.dropout)
 
+        # Convert all layer parameters to float32
+        for param in self.parameters():
+            param.data = param.data.to(torch.float32)
+    
     def forward(self, x: torch.Tensor, training: bool = False) -> torch.Tensor:
+        # Ensure input is float32
+        x = x.to(torch.float32)
         if training:
             x = x + self.drop(self.post_mqa_norm(self.mqa(self.pre_mqa_norm(x))))
             moe_out, routing_probs = self.moe(self.pre_moe_norm(x), training)
@@ -181,14 +206,55 @@ class MQA(nn.Module):
             self._flash_warning_shown = True
             if torch.cuda.is_available():
                 print("Flash attention disabled in config, using standard attention")
+        
+        # Store config for attention mechanism selection
+        self.config = config
+        
+        # Initialize both attention mechanisms
+        try:
+            from flash_attn import flash_attn_func
+            self.flash_attn_func = flash_attn_func
+        except ImportError:
+            self.flash_attn_func = None
+        
+        # Convert weights to float32 explicitly
+        self.q_proj.weight.data = self.q_proj.weight.data.to(torch.float32)
+        self.k_proj.weight.data = self.k_proj.weight.data.to(torch.float32)
+        self.v_proj.weight.data = self.v_proj.weight.data.to(torch.float32)
+        self.o_proj.weight.data = self.o_proj.weight.data.to(torch.float32)
     
     def forward(self, x):
+        """Forward pass with explicit dtype handling"""
+        # Convert input to float32 if needed
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        
+        # Project to Q, K, V with explicit dtype handling
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+        
+        # Ensure float32 dtype
+        q = q.to(torch.float32)
+        k = k.to(torch.float32)
+        v = v.to(torch.float32)
+        
         batch_size, seq_length, _ = x.shape
         
         # Project queries, keys, and values
-        q = self.q_proj(x).view(batch_size, seq_length, self.num_attention_heads, self.head_dim)
-        k = self.k_proj(x).view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
-        v = self.v_proj(x).view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+        
+        # Ensure projections are float32
+        q = q.to(torch.float32)
+        k = k.to(torch.float32)
+        v = v.to(torch.float32)
+        
+        # Reshape and continue with attention computation
+        q = q.view(batch_size, seq_length, self.num_attention_heads, self.head_dim)
+        k = k.view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
+        v = v.view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
         
         # Repeat k/v for multi-query attention
         if self.num_key_value_heads != self.num_attention_heads:
@@ -200,33 +266,33 @@ class MQA(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
         
-        # Compute attention
-        if self.use_flash:
-            from flash_attn import flash_attn_func
-            output = flash_attn_func(q, k, v, dropout_p=self.dropout.p if self.training else 0.0)
+        # Use Flash Attention only if available and enabled
+        if self.config.flash_attn and self.flash_attn_func is not None:
+            try:
+                output = self.flash_attn_func(q, k, v, 
+                    dropout_p=self.dropout.p if self.training else 0.0)
+            except RuntimeError as e:
+                if "FlashAttention only supports" in str(e):
+                    # Fallback to standard attention
+                    self.config.flash_attn = False
+                    print("Flash Attention not supported, falling back to standard attention")
+                    output = self._standard_attention(q, k, v)
+                else:
+                    raise e
         else:
-            # Standard scaled dot-product attention
-            attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-            attention_probs = F.softmax(attention_scores, dim=-1)
-            attention_probs = self.dropout(attention_probs)
-            output = torch.matmul(attention_probs, v)
+            output = self._standard_attention(q, k, v)
         
         # Reshape and project output
         output = output.transpose(1, 2).contiguous().view(batch_size, seq_length, -1)
         output = self.o_proj(output)
         
         return output
+    
+    def _standard_attention(self, q, k, v):
+        # Standard scaled dot-product attention
+        attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        attention_probs = F.softmax(attention_scores, dim=-1)
+        attention_probs = self.dropout(attention_probs)
+        output = torch.matmul(attention_probs, v)
+        return output
 
-@torch.no_grad()
-def estimate_loss(model, batch_size, eval_iters=10):
-    out = {}
-    model.eval()
-    for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            X, Y = get_batch(split, batch_size)
-            logits, loss = model(X, Y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
-    model.train()
-    return out

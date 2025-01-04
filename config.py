@@ -2,32 +2,33 @@ import torch
 from dataclasses import dataclass
 from typing import Optional
 from setting import DEFAULT_SETTINGS
+import os
 
 @dataclass
 class BluesConfig:
-    # Model architecture
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    head_dim: int = n_embd // n_head  # Add head dimension
-    vocab_size: int = 200000  # o200k_base vocabulary size
-    block_size: int = 1024
-    max_position_embeddings: int = DEFAULT_SETTINGS['tokenizer_config']['max_seq_length']
+    # Reduced model architecture
+    n_layer: int = 6           # Reduced from 12
+    n_head: int = 8           # Reduced from 12
+    n_embd: int = 512         # Reduced from 768
+    head_dim: int = 64        # n_embd // n_head
+    vocab_size: int = 200020
+    block_size: int = 512     # Reduced from 1024
+    max_position_embeddings: int = 512
     bias: bool = False
     
-    # MQA (Multiquery Attention) settings
-    num_key_value_heads: int = 4  # Number of key/value heads (should be <= n_head)
-    num_key_value_groups: int = n_head // num_key_value_heads  # Groups per head
-    use_multiquery: bool = True  # Whether to use multiquery attention
+    # Reduced MQA settings
+    num_key_value_heads: int = 2  # Reduced from 4
+    num_key_value_groups: int = n_head // num_key_value_heads
+    use_multiquery: bool = True
     
     # RMSNorm settings
     rms_norm_eps: float = 1e-5
     use_scale: bool = True
     
-    # MoE settings
-    tot_num_experts: int = 8  # Total number of experts
-    chosen_num_experts: int = 2  # Number of experts to route to
-    embedding_multiplier_scale: int = 4  # Hidden dimension multiplier for experts
+    # MoE settings (reduced)
+    tot_num_experts: int = 4   # Reduced from 8
+    chosen_num_experts: int = 1  # Reduced from 2
+    embedding_multiplier_scale: int = 2  # Reduced from 4
     noise_std: float = 1.0  # Noise for expert routing
     lambadada: float = 0.01  # MoE loss coefficient
     
@@ -117,5 +118,29 @@ class BluesConfig:
         self.pad_token_id = pad_token
         self.start_token_id = start_token
         self.end_token_id = end_token
+
+    def update_gpu_settings(self, flash_attn_available: bool, deepspeed_available: bool):
+        """Update settings based on GPU feature availability"""
+        # Only enable flash attention if GPU is compatible
+        self.flash_attn = flash_attn_available
+        self.mem_efficient = flash_attn_available
+        
+        if not flash_attn_available:
+            print("Using standard attention mechanism")
+        
+        # Update parallel settings based on DeepSpeed availability
+        self.expert_parallel = deepspeed_available
+        self.tensor_parallel = deepspeed_available
+        
+        # Adjust model settings for standard attention if needed
+        if not flash_attn_available:
+            # Use more memory-efficient settings for standard attention
+            self.gradient_checkpointing = True
+            self.num_key_value_heads = min(self.num_key_value_heads, 4)
+            print("Adjusted model settings for standard attention")
+
+# Add checkpoint directory configuration
+checkpoint_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
+data_cache_dir = os.path.join(os.path.dirname(__file__), 'data_cache')
 
 config = BluesConfig()
