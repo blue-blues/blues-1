@@ -1,59 +1,103 @@
-# Training settings
-learning_rate = 3e-4
-dropout = 0.2
-batch_size = 128
-weight_decay = 0.02
-max_iters = 20000
-eval_interval = 2000
+import argparse
+import json
+import os
+import torch
+from pathlib import Path
 
-# Data settings
-dataset = "df_file.csv"
-data_cache_dir = "data_cache"  # Directory to store processed data
-chunk_size = 1000  # Number of rows per chunk
-chunk_memory_limit = 1024 * 1024 * 512  # 512MB per chunk
-verify_data_loading = True  # Add verification flag
-checkpoint_dir = "checkpoints"
+# Define all default settings in a single dictionary
+DEFAULT_SETTINGS = {
+    # System settings
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+    'seed': 42,
+    'distributed': False,
+    'local_rank': -1,
 
-# Generation settings
-generation_config = {
-    'temperature': 0.8,
-    'top_p': 0.9,
-    'top_k': 50,
-    'max_length': 100
+    # Training settings
+    'learning_rate': 3e-4,
+    'dropout': 0.1,
+    'batch_size': 32,
+    'weight_decay': 0.02,
+    'max_iters': 50000,
+    'eval_interval': 500,
+    'save_interval': 1000,
+    'warmup_steps': 100,
+    'lr_decay_steps': 1000,
+    'min_lr': 3e-5,
+    'gradient_accumulation_steps': 4,  # Add this line
+
+    # Data settings
+    'dataset': "df_file.csv",
+    'data_cache_dir': "data_cache",
+    'chunk_size': 1000,
+    'chunk_memory_limit': 1024 * 1024 * 512,  # 512MB
+    'verify_data_loading': True,
+    'checkpoint_dir': "checkpoints",
+    'data_source': 'csv',  # Options: 'csv', 'huggingface'
+
+    # HuggingFace dataset settings
+    'hf_dataset_config': {
+        'name': 'wikitext/wikitext-103-raw-v1',
+        'subset': None,
+        'split': 'train',
+        'streaming': True,
+        'text_column': 'text',
+        'cache_dir': 'hf_cache'
+    },
+
+    # Dataset merging settings
+    'merged_data_dir': 'data_cache/merged',
+    'dataset_weights': None,
+    'datasets': {
+        'paths': [],  # List of paths to different dataset directories
+        'weights': [], # Optional weights for each dataset
+        'merge_strategy': 'weighted',  # Options: 'weighted', 'equal', 'proportional'
+    },
+
+    # Tokenizer settings
+    'tokenizer_config': {
+        'name': 'o200k_base',
+        'provider': 'tiktoken',
+        'special_tokens': {
+            'start_token': '<|start|>',
+            'end_token': '<|end|>',
+            'pad_token': '<|pad|>',
+        },
+        'max_seq_length': 2048,  # Maximum sequence length for the model
+        'add_special_tokens': True,
+    },
+
+    # Flash optimizations
+    'flash_optimizations': {
+        'use_flash_attn': True,
+        'mem_efficient': True,
+        'enable_tiling': True,
+        'tile_size': 256,
+        'use_cuda_fp16': True,
+    },
+
+    # Optimizer settings
+    'optimizer_config': {
+        'betas': (0.9, 0.95),
+        'eps': 1e-8,
+        'weight_decay': 0.1
+    },
 }
 
-# Performance settings
-mixed_precision = True
-gradient_accumulation_steps = 4
-warmup_steps = 100
-lr_decay_steps = 1000
-min_lr = 1e-5
+# Initialize all settings as module-level variables
+globals().update(DEFAULT_SETTINGS)
 
-# Memory optimization
-pin_memory = True
-num_workers = 4
-prefetch_factor = 2
+# Additional settings initialization from DEFAULT_SETTINGS subsections
+for section in ['optimizer_config', 'flash_optimizations', 'hf_dataset_config']:
+    if section in DEFAULT_SETTINGS:
+        globals()[section] = DEFAULT_SETTINGS[section]
 
-# Added optimization settings
-optimizer_config = {
-    'betas': (0.9, 0.95),
-    'eps': 1e-8,
-    'weight_decay': 0.02
-}
+# Extract dataset-related settings for easy access
+dataset = DEFAULT_SETTINGS['dataset']
+data_cache_dir = DEFAULT_SETTINGS['data_cache_dir']
+chunk_size = DEFAULT_SETTINGS['chunk_size']
 
-# Flash Attention settings
-flash_attention_config = {
-    'max_seqlen': 2048,
-    'dropout_p': 0.1,
-    'causal': True,
-    'return_attn_probs': False,
-    'deterministic': False
-}
+flash_optimizations = DEFAULT_SETTINGS['flash_optimizations']
+optimizer_config = DEFAULT_SETTINGS.get('optimizer_config', {})
 
-# Memory and optimization for Flash Attention
-flash_optimizations = {
-    'use_flash_attn': True,
-    'mem_efficient': True,
-    'enable_tiling': True,
-    'tile_size': 256
-}
+# Make gradient_accumulation_steps available globally
+gradient_accumulation_steps = DEFAULT_SETTINGS['gradient_accumulation_steps']

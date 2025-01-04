@@ -1,9 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 from data import *
 from moe import *
 from config import config
+from typing import Optional, Tuple
+import math
 
 class blues(nn.Module):
     def __init__(self, config, tokenizer):
@@ -14,11 +17,29 @@ class blues(nn.Module):
         self.head_dim = config.head_dim
         self.vocab_size = config.vocab_size
         self.tokenizer = tokenizer
-        self.embedder = nn.Embedding(self.vocab_size, config.hidden_size)
+        self.embedder = nn.Embedding(config.vocab_size, config.hidden_size)  # Change embedding to embedder
+        self.pos_embedding = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.layers = nn.ModuleList([DecoderLayer(config) for _ in range(config.num_layers)])
         self.final_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.criterion = nn.CrossEntropyLoss()
         self.lambadada = config.lambadada
+        self.gradient_checkpointing = False
+        self.support_gradient_checkpointing = True
+
+    def _validate_input(self, input_ids):
+        """Validate and clean input token IDs"""
+        if torch.any(input_ids >= self.vocab_size):
+            print(f"Warning: Found tokens outside vocab range. Max token: {input_ids.max()}")
+            return torch.clamp(input_ids, 0, self.vocab_size - 1)
+        return input_ids
+
+    def gradient_checkpointing_enable(self, value=True):
+        """Enable gradient checkpointing for memory efficiency"""
+        self.gradient_checkpointing = value
+        if value:
+            for layer in self.layers:
+                if hasattr(layer, 'gradient_checkpointing_enable'):
+                    layer.gradient_checkpointing_enable(value)
 
     def calc_moe_loss(self, routing_probs_list):
         all_routing_probs = torch.cat([x.unsqueeze(0) for x in routing_probs_list], dim=0)
@@ -30,10 +51,36 @@ class blues(nn.Module):
 
     def forward(self, input_token_ids: torch.Tensor, target_token_ids: torch.Tensor = None) -> torch.Tensor:
         training = target_token_ids is not None
-        x = self.embedder(input_token_ids) * self.config.hidden_size ** 0.5
+        
+        # Validate inputs
+        input_token_ids = self._validate_input(input_token_ids)
+        if target_token_ids is not None:
+            target_token_ids = self._validate_input(target_token_ids)
+        
+        # Apply both token and position embeddings
+        token_embeddings = self.embedder(input_token_ids)
+        positions = torch.arange(0, input_token_ids.size(1), device=input_token_ids.device)
+        pos_embeddings = self.pos_embedding(positions).unsqueeze(0)
+        x = (token_embeddings + pos_embeddings) * self.config.hidden_size ** 0.5
         routing_probs_list = []
+        
+        def create_custom_forward(layer):
+            def custom_forward(*inputs):
+                x = inputs[0]
+                return layer(x, training)
+            return custom_forward
+
         for layer in self.layers:
-            x, routing_probs = layer(x, training)
+            if self.gradient_checkpointing and self.training:
+                layer_output = checkpoint.checkpoint(
+                    create_custom_forward(layer),
+                    x,
+                    use_reentrant=False
+                )
+                x, routing_probs = layer_output
+            else:
+                x, routing_probs = layer(x, training)
+                
             if training:
                 routing_probs_list.append(routing_probs)
         x = self.final_norm(x)
@@ -114,6 +161,61 @@ class DecoderLayer(nn.Module):
             moe_out, routing_probs = self.moe(self.pre_moe_norm(x), training)
             x = x + self.post_moe_norm(moe_out)
         return x, routing_probs
+
+class MQA(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.num_attention_heads = config.num_attention_heads
+        self.num_key_value_heads = config.num_key_value_heads
+        self.head_dim = config.head_dim
+        self.hidden_size = config.hidden_size
+        
+        self.q_proj = nn.Linear(self.hidden_size, self.num_attention_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.o_proj = nn.Linear(self.num_attention_heads * self.head_dim, self.hidden_size, bias=False)
+        
+        self.dropout = nn.Dropout(config.dropout)
+        self.use_flash = config.flash_attn and torch.cuda.is_available()
+        if not self.use_flash and not hasattr(self, '_flash_warning_shown'):
+            self._flash_warning_shown = True
+            if torch.cuda.is_available():
+                print("Flash attention disabled in config, using standard attention")
+    
+    def forward(self, x):
+        batch_size, seq_length, _ = x.shape
+        
+        # Project queries, keys, and values
+        q = self.q_proj(x).view(batch_size, seq_length, self.num_attention_heads, self.head_dim)
+        k = self.k_proj(x).view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
+        v = self.v_proj(x).view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
+        
+        # Repeat k/v for multi-query attention
+        if self.num_key_value_heads != self.num_attention_heads:
+            k = k.repeat_interleave(self.num_attention_heads // self.num_key_value_heads, dim=2)
+            v = v.repeat_interleave(self.num_attention_heads // self.num_key_value_heads, dim=2)
+        
+        # Rearrange for attention computation
+        q = q.transpose(1, 2)  # (batch, num_heads, seq_len, head_dim)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+        
+        # Compute attention
+        if self.use_flash:
+            from flash_attn import flash_attn_func
+            output = flash_attn_func(q, k, v, dropout_p=self.dropout.p if self.training else 0.0)
+        else:
+            # Standard scaled dot-product attention
+            attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            attention_probs = F.softmax(attention_scores, dim=-1)
+            attention_probs = self.dropout(attention_probs)
+            output = torch.matmul(attention_probs, v)
+        
+        # Reshape and project output
+        output = output.transpose(1, 2).contiguous().view(batch_size, seq_length, -1)
+        output = self.o_proj(output)
+        
+        return output
 
 @torch.no_grad()
 def estimate_loss(model, batch_size, eval_iters=10):

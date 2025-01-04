@@ -74,6 +74,79 @@ For multi-GPU training with DeepSpeed:
 deepspeed --num_gpus=4 train.py --deepspeed ds_config.json
 ```
 
+## Working with Multiple Datasets
+
+### Dataset Merging
+
+The model supports training on multiple datasets from different sources. You can merge datasets using the provided tools:
+
+```bash
+# Merge multiple datasets with equal weights
+python merge_data.py --datasets data_cache_user1 data_cache_user2 data_cache_user3
+
+# Merge with custom weights (e.g., 70% first dataset, 30% second dataset)
+python merge_data.py --datasets data_cache_user1 data_cache_user2 --weights 0.7 0.3
+```
+
+### Dataset Processing Workflow
+
+1. **Preprocess Individual Datasets**:
+```bash
+# Process first dataset
+python data.py --dataset dataset1.csv --data_cache_dir data_cache_1
+
+# Process second dataset
+python data.py --dataset dataset2.csv --data_cache_dir data_cache_2
+```
+
+2. **Merge Datasets**:
+```bash
+python merge_data.py --datasets data_cache_1 data_cache_2
+```
+
+3. **Train on Merged Data**:
+```bash
+python train.py --data_cache_dir data_cache/merged
+```
+
+### Merging Strategies
+
+The system supports different merging strategies:
+
+- `weighted`: Use custom weights for each dataset
+- `equal`: Treat all datasets equally
+- `proportional`: Weight by dataset sizes
+
+Configure merging strategy in `config.json`:
+```json
+{
+    "datasets": {
+        "paths": ["data_cache_1", "data_cache_2"],
+        "weights": [0.7, 0.3],
+        "merge_strategy": "weighted"
+    }
+}
+```
+
+### Memory Efficient Processing
+
+- Datasets are processed and stored in chunks
+- Each chunk is loaded only when needed
+- Automatic memory management
+- Support for large-scale datasets
+
+### Dataset Verification
+
+You can verify merged datasets:
+```bash
+python merge_data.py --verify --datasets data_cache_1 data_cache_2
+```
+This will:
+- Check data integrity
+- Verify chunk consistency
+- Calculate dataset statistics
+- Report any issues
+
 ## Model Features
 
 ### 1. Multi-Query Attention

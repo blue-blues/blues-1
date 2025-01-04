@@ -3,6 +3,7 @@ from model import blues
 from config import config
 from data import encoder
 import argparse
+from $FEDXAS=- aimport optimize_model_for_inference
 
 def load_model(checkpoint_path):
     """Load the trained model from checkpoint"""
@@ -10,8 +11,10 @@ def load_model(checkpoint_path):
     checkpoint = torch.load(checkpoint_path, map_location=config.device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(config.device)
-    model.eval()
-    return model
+    
+    # Apply inference optimizations
+    with optimize_model_for_inference(model):
+        return model
 
 def sample_text(model, prompt, max_length=100, temperature=0.8, top_p=0.9, top_k=50):
     """Generate text from a prompt"""
