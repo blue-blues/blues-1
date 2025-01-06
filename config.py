@@ -94,6 +94,12 @@ class BluesConfig:
     # Quantization
     bits: Optional[int] = None
     
+    # Updated MoE configuration
+    use_moe: bool = True
+    num_experts: int = 8
+    top_k: int = 2
+    expert_ffn_size: int = None  # Will be set in post_init
+    
     def __post_init__(self):
         # Verify and adjust dimensions
         assert self.n_embd % self.n_head == 0, "Embedding dim must be divisible by num heads"
@@ -112,6 +118,14 @@ class BluesConfig:
         # Verify MoE settings
         assert self.chosen_num_experts <= self.tot_num_experts, \
             "Chosen experts must be less than or equal to total experts"
+        
+        # Set expert FFN size if not explicitly specified
+        if self.expert_ffn_size is None:
+            self.expert_ffn_size = 4 * self.hidden_size
+            
+        # Verify MoE settings
+        assert self.top_k <= self.num_experts, \
+            "top_k must be less than or equal to num_experts"
 
     def set_special_tokens(self, pad_token, start_token, end_token):
         """Set special token IDs after tokenizer is initialized"""
@@ -138,6 +152,13 @@ class BluesConfig:
             self.gradient_checkpointing = True
             self.num_key_value_heads = min(self.num_key_value_heads, 4)
             print("Adjusted model settings for standard attention")
+    
+    def update_moe_settings(self, num_experts=None, top_k=None):
+        """Update MoE settings based on available resources"""
+        if num_experts is not None:
+            self.num_experts = num_experts
+        if top_k is not None:
+            self.top_k = min(top_k, self.num_experts)
 
 # Add checkpoint directory configuration
 checkpoint_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
