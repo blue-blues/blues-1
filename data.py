@@ -15,9 +15,9 @@ chunk_size = DEFAULT_SETTINGS.get('chunk_size', 10000)
 
 from utils.memory import MemoryManager, MemoryEfficientLoader, compute_optimal_chunk_size
 
-# Initialize tiktoken encoder with o200k_base and special tokens
+# Initialize tiktoken encoder with cl100k_base and special tokens
 try:
-    encoder = tiktoken.get_encoding("o200k_base")
+    encoder = tiktoken.get_encoding("cl100k_base")
     # Use tokens from within the vocab range
     START_TOKEN = encoder.n_vocab - 4  # Keep within vocab range
     END_TOKEN = encoder.n_vocab - 3
@@ -27,10 +27,10 @@ try:
     assert all(0 <= token < encoder.n_vocab for token in [START_TOKEN, END_TOKEN, PAD_TOKEN]), \
         "Special tokens must be within vocabulary range"
     
-    print(f"Initialized o200k_base tokenizer with vocabulary size: {encoder.n_vocab}")
+    print(f"Initialized cl100k_base tokenizer with vocabulary size: {encoder.n_vocab}")
     print(f"Special tokens - Start: {START_TOKEN}, End: {END_TOKEN}, Pad: {PAD_TOKEN}")
 except Exception as e:
-    raise RuntimeError(f"Failed to initialize o200k_base tokenizer: {e}")
+    raise RuntimeError(f"Failed to initialize cl100k_base tokenizer: {e}")
 
 def save_chunk(data, filepath, chunk_num):
     """Save a chunk of tokenized data"""
