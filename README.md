@@ -1,37 +1,48 @@
 # Blues-01: MoE Language Model
 
-A PyTorch implementation of a Mixture of Experts (MoE) language model with multi-query attention and memory-efficient training.
+A PyTorch implementation of a Mixture of Experts (MoE) language model with multi-query attention and efficient memory management.
 
 ## Features
 
-- Mixture of Experts (MoE) architecture for efficient scaling
-- Multi-Query Attention (MQA) for reduced memory usage
-- Memory-efficient training with chunked datasets
-- Tiktoken o200k_base tokenizer integration
-- Dynamic batch sizing and gradient accumulation
-- FlashAttention support (optional)
-- RMSNorm and rotary position embeddings
+- Mixture of Experts (MoE) architecture with dynamic routing
+- Multi-Query Attention (MQA) with configurable key-value heads
+- Flash Attention integration for GPU optimization
+- Memory-efficient training with gradient checkpointing
+- Load balancing for expert utilization
+- Automatic mixed precision training
+- DeepSpeed integration for distributed training
+- Dynamic batch sizing based on available memory
 
-## Architecture
+## Model Architecture
 
-- Vocab size: 200k (tiktoken o200k_base)
-- Model dimensions: 768
-- Attention heads: 12
-- Layers: 12 (alternating MoE layers)
-- Experts: 8 per MoE layer
-- Expert routing: Top-2 routing with noise
-- Position embeddings: Rotary (RoPE)
+### Core Components
 
-## Requirements
+1. **Multi-Query Attention (MQA)**
+   - Configurable number of key-value heads
+   - Optional Flash Attention support
+   - Rotary position embeddings (RoPE)
 
+2. **Mixture of Experts (MoE)**
+   - Dynamic expert routing with noise
+   - Load balancing through auxiliary loss
+   - Configurable number of experts and routing
+
+### Default Configuration
+
+```python
+config = BluesConfig(
+    n_layer=6,                # Number of transformer layers
+    n_head=8,                # Number of attention heads
+    n_embd=512,             # Embedding dimension
+    num_key_value_heads=2,   # Number of KV heads
+    num_experts=8,           # Number of experts per MoE layer
+    top_k=2,                # Number of experts to route to
+    vocab_size=200020,      # Vocabulary size
+    block_size=512          # Maximum sequence length
+)
 ```
-deepspeed>=0.10.0
-flash-attn>=2.3.3
-torch>=2.0.0
-einops>=0.6.1
-triton>=2.0.0
-```
 
+<<<<<<< HEAD
 ## TODO List & Implementation Roadmap
 
 ### 1. Representation Learning
@@ -174,207 +185,262 @@ triton>=2.0.0
 - Reduce memory footprint
 
 ## Training
+=======
+## Installation
+>>>>>>> 47b3f217d181ac11672a37f8dd92db4c5da8b3d8
 
-### Setup
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/blues-moe.git
+cd blues-moe
+```
 
-1. Install dependencies:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-```
+
+## Requirements
+
+- Python 3.8+
+- PyTorch 2.0.0+
+- flash-attn (optional, for GPU acceleration)
+- deepspeed (optional, for distributed training)
+- einops
+- triton
+- tiktoken
+
+## Usage
+
+### Training
+
+1. Prepare your dataset:
+```bash
 python data.py --input_dir data/raw --cache_dir data_cache
 ```
-3. Update configuration in `config.py` if needed.
 
-### Running Training
-
-For single GPU:
+2. Start training:
 ```bash
+# Single GPU training
 python train.py
-```
 
-For multi-GPU training with DeepSpeed:
-```bash
+# Multi-GPU training with DeepSpeed
 deepspeed --num_gpus=4 train.py --deepspeed ds_config.json
 ```
 
-## Working with Multiple Datasets
-
-### Dataset Merging
-
-The model supports training on multiple datasets from different sources. You can merge datasets using the provided tools:
-
-```bash
-# Merge multiple datasets with equal weights
-python merge_data.py --datasets data_cache_user1 data_cache_user2 data_cache_user3
-
-# Merge with custom weights (e.g., 70% first dataset, 30% second dataset)
-python merge_data.py --datasets data_cache_user1 data_cache_user2 --weights 0.7 0.3
-```
-
-### Dataset Processing Workflow
-
-1. **Preprocess Individual Datasets**:
-```bash
-# Process first dataset
-python data.py --dataset dataset1.csv --data_cache_dir data_cache_1
-
-# Process second dataset
-python data.py --dataset dataset2.csv --data_cache_dir data_cache_2
-```
-
-2. **Merge Datasets**:
-```bash
-python merge_data.py --datasets data_cache_1 data_cache_2
-```
-
-3. **Train on Merged Data**:
-```bash
-python train.py --data_cache_dir data_cache/merged
-```
-
-### Merging Strategies
-
-The system supports different merging strategies:
-
-- `weighted`: Use custom weights for each dataset
-- `equal`: Treat all datasets equally
-- `proportional`: Weight by dataset sizes
-
-Configure merging strategy in `config.json`:
-```json
-{
-    "datasets": {
-        "paths": ["data_cache_1", "data_cache_2"],
-        "weights": [0.7, 0.3],
-        "merge_strategy": "weighted"
-    }
-}
-```
-
-### Memory Efficient Processing
-
-- Datasets are processed and stored in chunks
-- Each chunk is loaded only when needed
-- Automatic memory management
-- Support for large-scale datasets
-
-### Dataset Verification
-
-You can verify merged datasets:
-```bash
-python merge_data.py --verify --datasets data_cache_1 data_cache_2
-```
-This will:
-- Check data integrity
-- Verify chunk consistency
-- Calculate dataset statistics
-- Report any issues
-
-## Model Features
-
-### 1. Multi-Query Attention
-- Efficient attention mechanism with shared key-value heads
-- RoPE positional embeddings for better position awareness
-- Optional Flash Attention support for faster computation
-
-### 2. Mixture of Experts
-- Dynamic expert routing based on input content
-- Noise-based exploration during training
-- Load balancing through auxiliary loss
-
-### 3. Architecture Optimizations
-- Mixed precision training support
-- DeepSpeed integration for distributed training
-- Memory efficient attention implementation
-- Gradient checkpointing option
-
-## Generation
-
-The model supports various text generation settings:
+### Generation
 
 ```python
-generation_config = {
-    'temperature': 0.8,
-    'top_p': 0.9,
-    'top_k': 50,
-    'max_length': 100
-}
-```
+from model import blues
+from config import config
 
-## Generation and Evaluation
+# Load model
+model = blues(config, tokenizer)
+model.load_state_dict(torch.load('checkpoints/model.pt'))
 
-### Using the Generation Script
-
-The `generate.py` script provides an easy interface for text generation and model evaluation:
-
-```bash
-# Basic text generation
-python generate.py --checkpoint checkpoints/model_iter_1000.pt --prompt "Once upon a time"
-
-# Advanced generation with custom parameters
-python generate.py --checkpoint checkpoints/model_iter_1000.pt \
-    --prompt "The future of AI is" \
-    --max_length 200 \
-    --temperature 0.9 \
-    --top_p 0.95 \
-    --top_k 40
-
-# Evaluate perplexity on custom text
-python generate.py --checkpoint checkpoints/model_iter_1000.pt \
-    --eval_text "This is a test sentence to evaluate the model's perplexity."
-```
-
-### Generation Parameters
-
-- `--checkpoint`: Path to the saved model checkpoint
-- `--prompt`: Input text to start generation
-- `--max_length`: Maximum number of tokens to generate
-- `--temperature`: Controls randomness (higher = more random)
-- `--top_p`: Nucleus sampling parameter
-- `--top_k`: Top-k sampling parameter
-- `--eval_text`: Text to calculate perplexity on
-
-### Interactive Generation
-
-You can also use the model programmatically:
-
-```python
-from generate import load_model, sample_text
-
-model = load_model("checkpoints/model_iter_1000.pt")
-text = sample_text(
-    model,
-    prompt="Write a story about",
-    max_length=200,
+# Generate text
+output = model.generate(
+    prompt="Once upon a time",
+    output_len=100,
     temperature=0.8,
     top_p=0.9,
     top_k=50
 )
 ```
 
-### Evaluation Metrics
+## Memory Optimization
 
-The model supports several evaluation metrics:
+The implementation includes several memory optimization features:
 
-1. **Perplexity**: Measures how well the model predicts a text sample
-2. **Expert utilization**: Tracks the distribution of tokens across experts
-3. **Training/validation loss**: Monitors model convergence
-4. **Generation quality**: Subjective evaluation of generated text
+1. **Gradient Checkpointing**
+   - Enable with `model.gradient_checkpointing_enable()`
+   - Trades computation for memory efficiency
 
-## Monitoring and Checkpoints
+2. **Dynamic Batch Sizing**
+   - Automatically adjusts batch size based on available memory
+   - Supports gradient accumulation
 
-- Regular evaluation during training
-- Checkpoint saving at configured intervals
-- Training loss and validation loss monitoring
-- Expert utilization tracking
+3. **Expert Pruning**
+   - Removes unused experts during training
+   - Balances expert utilization
 
-## Performance Optimization
+4. **Memory-Efficient Attention**
+   - Uses Flash Attention when available
+   - Fallback to optimized standard attention
 
-- Flash Attention for faster attention computation
-- DeepSpeed integration for distributed training
-- Mixed precision training
-- Memory optimization settings
+## Training Tips
+
+1. **Starting Training**
+   - Begin with a small number of experts (4-8)
+   - Monitor expert utilization through the load balancing loss
+   - Gradually increase model size based on performance
+
+2. **Optimization Settings**
+   - Adjust learning rate based on model size
+   - Use gradient accumulation for larger batches
+   - Enable gradient checkpointing for large models
+
+3. **Memory Management**
+   - Monitor GPU memory usage
+   - Adjust batch size dynamically
+   - Use mixed precision training
+
+4. **Expert Configuration**
+   - Start with top_k=2 for routing
+   - Adjust number of experts based on dataset size
+   - Monitor expert utilization metrics
+
+## API Reference
+
+### Configuration
+
+```python
+BluesConfig(
+    n_layer: int = 6,
+    n_head: int = 8,
+    n_embd: int = 512,
+    num_experts: int = 8,
+    top_k: int = 2,
+    expert_ffn_size: int = None,
+    dropout: float = 0.1,
+    flash_attn: bool = True
+)
+```
+
+### Model Methods
+
+```python
+model.forward(input_ids, target_ids=None)
+model.generate(prompt, output_len=100, temperature=0.8)
+model.gradient_checkpointing_enable()
+```
+
+## Checkpointing
+
+The model supports various checkpointing features:
+
+```python
+# Save checkpoint
+save_checkpoint(model, optimizer, iter_num, loss, 'checkpoint.pt')
+
+# Resume training
+model, optimizer, start_iter = setup_training(resume_from='checkpoint.pt')
+```
+
+## TODO & Planned Improvements
+
+### 1. Better Representation Learning
+- [ ] Implement contrastive learning for improved embeddings
+- [ ] Add supervised contrastive loss
+- [ ] Support for multiple positive examples
+- [ ] Temperature-scaled InfoNCE loss
+- [ ] Hard negative mining strategies
+
+### 2. Specialized Processing
+- [x] Basic Mixture of Experts implementation
+- [ ] Dynamic expert pruning
+- [ ] Conditional computation paths
+- [ ] Expert specialization metrics
+- [ ] Adaptive routing strategies
+- [ ] Expert load balancing improvements
+
+### 3. Position Understanding
+- [x] Basic RoPE implementation
+- [ ] Dynamic RoPE scaling
+- [ ] Improved position interpolation
+- [ ] NTK-aware scaling
+- [ ] Position aliasing reduction
+- [ ] Extended context length support
+
+### 4. Long Sequence Handling
+- [ ] Sliding window attention
+- [ ] Sparse attention patterns
+- [ ] Local-global attention mixing
+- [ ] Adaptive context window
+- [ ] Memory-efficient sequence processing
+- [ ] Progressive sequence chunking
+
+### 5. Attention Optimization
+- [x] Basic Flash Attention integration
+- [ ] Flash Attention V2 support
+- [ ] Automatic precision switching
+- [ ] Custom CUDA kernels
+- [ ] Memory access optimization
+- [ ] Attention pattern pruning
+
+### 6. Memory Efficient Inference
+- [ ] KV cache implementation
+- [ ] Quantized cache storage
+- [ ] Dynamic cache pruning
+- [ ] Prefetch optimization
+- [ ] Cache compression strategies
+- [ ] Memory-mapped cache support
+
+### Priority Matrix
+
+| Feature | Impact | Difficulty | Priority |
+|---------|---------|------------|-----------|
+| Contrastive Learning | High | Medium | 1 |
+| Expert Pruning | High | Medium | 2 |
+| Flash Attention V2 | High | Low | 3 |
+| KV Cache | High | Medium | 4 |
+| Sliding Window | Medium | High | 5 |
+| Dynamic RoPE | Medium | Low | 6 |
+
+### Implementation Notes
+
+1. **Contrastive Learning**
+   - Start with simple pairwise contrastive loss
+   - Gradually add multi-positive support
+   - Implement temperature scaling
+   - Add data augmentation strategies
+
+2. **Expert Improvements**
+   - Monitor expert utilization
+   - Implement adaptive routing
+   - Add expert dropout
+   - Optimize load balancing
+
+3. **Position Enhancements**
+   - Test different RoPE configurations
+   - Benchmark position understanding
+   - Optimize for longer sequences
+   - Add position caching
+
+4. **Sequence Processing**
+   - Start with basic sliding window
+   - Add attention sparsity
+   - Implement efficient chunking
+   - Optimize memory usage
+
+5. **Attention Updates**
+   - Upgrade to Flash Attention V2
+   - Profile and optimize kernels
+   - Add precision autotuning
+   - Implement pattern caching
+
+6. **Inference Optimization**
+   - Design efficient KV cache
+   - Add compression support
+   - Implement cache management
+   - Optimize memory usage
+
+### Timeline
+
+Q1 2024:
+- Contrastive learning implementation
+- Expert pruning and routing improvements
+- Flash Attention V2 upgrade
+
+Q2 2024:
+- KV cache implementation
+- Position understanding enhancements
+- Memory optimization
+
+Q3 2024:
+- Sliding window attention
+- Long sequence optimizations
+- Performance tuning
 
 ## High Performance Training
 
@@ -534,4 +600,17 @@ Please ensure your code follows our style guidelines and includes appropriate te
 
 ## License
 
-This project is open-source and available under the MIT License.
+Vlabs License
+
+## Citation
+
+If you use this code in your research, please cite:
+
+```bibtex
+@software{blue-blues,
+  title = {Blues},
+  author = {vaibhavg Gavade},
+  year = {2024},
+  url = {https://github.com/yourusername/blues-moe}
+}
+```

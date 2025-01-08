@@ -26,6 +26,8 @@ class blues(nn.Module):
         self.lambadada = config.lambadada
         self.gradient_checkpointing = False
         self.support_gradient_checkpointing = True
+        self.moe_loss = 0.0
+        self.use_moe = config.use_moe
 
         # Ensure all parameters are initialized as float32
         for param in self.parameters():
@@ -157,13 +159,8 @@ class DecoderLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.mqa = MQA(config)
-        self.moe = MoELayer(
-            model_dim=config.hidden_size,
-            expert_hidden_dim=config.hidden_size * config.embedding_multiplier_scale,
-            tot_num_experts=config.tot_num_experts,
-            chosen_num_experts=config.chosen_num_experts,
-            noise_std=config.noise_std
-        )
+        # Fix MoELayer initialization to match expected parameters
+        self.moe = MoELayer(config)  # Changed to just pass config
         self.pre_mqa_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, use_scale=config.use_scale)
         self.post_mqa_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, use_scale=config.use_scale)
         self.pre_moe_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, use_scale=config.use_scale)
@@ -174,18 +171,19 @@ class DecoderLayer(nn.Module):
         for param in self.parameters():
             param.data = param.data.to(torch.float32)
     
-    def forward(self, x: torch.Tensor, training: bool = False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, training: bool = False) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         # Ensure input is float32
         x = x.to(torch.float32)
-        if training:
-            x = x + self.drop(self.post_mqa_norm(self.mqa(self.pre_mqa_norm(x))))
-            moe_out, routing_probs = self.moe(self.pre_moe_norm(x), training)
-            x = x + self.drop(self.post_moe_norm(moe_out))
-        else:
-            x = x + self.post_mqa_norm(self.mqa(self.pre_mqa_norm(x)))
-            moe_out, routing_probs = self.moe(self.pre_moe_norm(x), training)
-            x = x + self.post_moe_norm(moe_out)
-        return x, routing_probs
+        
+        # MQA forward pass
+        mqa_out = self.mqa(self.pre_mqa_norm(x))
+        x = x + self.drop(self.post_mqa_norm(mqa_out))
+        
+        # MoE forward pass
+        moe_out, router_mask = self.moe(self.pre_moe_norm(x), training)
+        x = x + self.drop(self.post_moe_norm(moe_out))
+        
+        return x, router_mask
 
 class MQA(nn.Module):
     def __init__(self, config):
@@ -201,98 +199,84 @@ class MQA(nn.Module):
         self.o_proj = nn.Linear(self.num_attention_heads * self.head_dim, self.hidden_size, bias=False)
         
         self.dropout = nn.Dropout(config.dropout)
-        self.use_flash = config.flash_attn and torch.cuda.is_available()
-        if not self.use_flash and not hasattr(self, '_flash_warning_shown'):
-            self._flash_warning_shown = True
-            if torch.cuda.is_available():
-                print("Flash attention disabled in config, using standard attention")
         
-        # Store config for attention mechanism selection
-        self.config = config
-        
-        # Initialize both attention mechanisms
+        # Initialize Flash Attention 2
         try:
             from flash_attn import flash_attn_func
             self.flash_attn_func = flash_attn_func
+            self.use_flash = config.flash_attn
         except ImportError:
-            self.flash_attn_func = None
+            self.use_flash = False
+            print("Flash Attention not available, using standard attention")
         
         # Convert weights to float32 explicitly
-        self.q_proj.weight.data = self.q_proj.weight.data.to(torch.float32)
-        self.k_proj.weight.data = self.k_proj.weight.data.to(torch.float32)
-        self.v_proj.weight.data = self.v_proj.weight.data.to(torch.float32)
-        self.o_proj.weight.data = self.o_proj.weight.data.to(torch.float32)
+        for param in self.parameters():
+            param.data = param.data.to(torch.float32)
     
     def forward(self, x):
-        """Forward pass with explicit dtype handling"""
-        # Convert input to float32 if needed
-        if x.dtype != torch.float32:
-            x = x.to(torch.float32)
-        
-        # Project to Q, K, V with explicit dtype handling
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
-        
-        # Ensure float32 dtype
-        q = q.to(torch.float32)
-        k = k.to(torch.float32)
-        v = v.to(torch.float32)
-        
         batch_size, seq_length, _ = x.shape
         
-        # Project queries, keys, and values
+        # Project to Q, K, V
         q = self.q_proj(x)
         k = self.k_proj(x)
         v = self.v_proj(x)
         
-        # Ensure projections are float32
-        q = q.to(torch.float32)
-        k = k.to(torch.float32)
-        v = v.to(torch.float32)
-        
-        # Reshape and continue with attention computation
+        # Reshape for attention
         q = q.view(batch_size, seq_length, self.num_attention_heads, self.head_dim)
         k = k.view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
         v = v.view(batch_size, seq_length, self.num_key_value_heads, self.head_dim)
         
-        # Repeat k/v for multi-query attention
+        # Handle MQA/GQA
         if self.num_key_value_heads != self.num_attention_heads:
             k = k.repeat_interleave(self.num_attention_heads // self.num_key_value_heads, dim=2)
             v = v.repeat_interleave(self.num_attention_heads // self.num_key_value_heads, dim=2)
         
-        # Rearrange for attention computation
-        q = q.transpose(1, 2)  # (batch, num_heads, seq_len, head_dim)
-        k = k.transpose(1, 2)
-        v = v.transpose(1, 2)
-        
-        # Use Flash Attention only if available and enabled
-        if self.config.flash_attn and self.flash_attn_func is not None:
+        if self.use_flash:
+            # Prepare inputs for Flash Attention
+            q = q.transpose(1, 2)  # [batch, num_heads, seq_len, head_dim]
+            k = k.transpose(1, 2)
+            v = v.transpose(1, 2)
+            
+            # Create attention mask for causal attention
+            is_causal = True
+            
             try:
-                output = self.flash_attn_func(q, k, v, 
-                    dropout_p=self.dropout.p if self.training else 0.0)
+                # Run Flash Attention 2
+                output = self.flash_attn_func(
+                    q, k, v,
+                    dropout_p=self.dropout.p if self.training else 0.0,
+                    causal=is_causal,
+                    softmax_scale=1.0 / math.sqrt(self.head_dim)
+                )
+                
+                # Reshape output
+                output = output.transpose(1, 2).contiguous()
+                output = output.view(batch_size, seq_length, -1)
+                
             except RuntimeError as e:
-                if "FlashAttention only supports" in str(e):
-                    # Fallback to standard attention
-                    self.config.flash_attn = False
-                    print("Flash Attention not supported, falling back to standard attention")
-                    output = self._standard_attention(q, k, v)
-                else:
-                    raise e
+                print(f"Flash Attention failed, falling back to standard attention: {e}")
+                self.use_flash = False
+                output = self._standard_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2))
         else:
             output = self._standard_attention(q, k, v)
         
-        # Reshape and project output
-        output = output.transpose(1, 2).contiguous().view(batch_size, seq_length, -1)
-        output = self.o_proj(output)
-        
+        # Final projection
+        output = self.o_proj(output.view(batch_size, seq_length, -1))
         return output
     
     def _standard_attention(self, q, k, v):
         # Standard scaled dot-product attention
-        attention_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        attention_probs = F.softmax(attention_scores, dim=-1)
-        attention_probs = self.dropout(attention_probs)
-        output = torch.matmul(attention_probs, v)
-        return output
+        scale = 1.0 / math.sqrt(self.head_dim)
+        scores = torch.matmul(q, k.transpose(-2, -1)) * scale
+        
+        # Causal mask
+        causal_mask = torch.triu(torch.ones(scores.size(-2), scores.size(-1), 
+            device=scores.device, dtype=torch.bool), diagonal=1)
+        scores.masked_fill_(causal_mask, float('-inf'))
+        
+        attention_weights = F.softmax(scores, dim=-1)
+        attention_weights = self.dropout(attention_weights)
+        
+        output = torch.matmul(attention_weights, v)
+        return output.view(*output.shape[:-2], -1)
 

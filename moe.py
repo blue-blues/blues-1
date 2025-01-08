@@ -221,89 +221,88 @@ class Expert(nn.Module):
 
 
 class Router(nn.Module):
-    def __init__(self, input_size, tot_num_experts, noise_std: float = 0.1):
-        """
-        Initialize a Router module.
-
-        Args:
-            input_size (int): Dimensionality of the input to the router.
-            tot_num_experts (int): Total number of experts in the mixture.
-            noise_std (float): Standard deviation of Gaussian noise added during training for exploration.
-        """
+    def __init__(self, input_size, num_experts, top_k=2):
         super().__init__()
-        self.tot_num_experts = tot_num_experts
-        self.router_weights = nn.Linear(input_size, tot_num_experts, bias=False)
-        self.noise_std = noise_std
+        self.num_experts = num_experts
+        self.top_k = top_k
+        self.gate = nn.Linear(input_size, num_experts, bias=False)
+        
+    def forward(self, x):
+        # Calculate routing weights
+        gate_logits = self.gate(x)  # [batch_size, seq_len, num_experts]
+        weights = F.softmax(gate_logits, dim=-1)
+        
+        # Select top-k experts
+        top_k_weights, top_k_indices = torch.topk(weights, self.top_k, dim=-1)
+        top_k_weights = top_k_weights / top_k_weights.sum(dim=-1, keepdim=True)
+        
+        # Create routing mask
+        mask = torch.zeros_like(weights).scatter_(-1, top_k_indices, top_k_weights)
+        
+        return mask, top_k_indices
 
-    def forward(self, inputs, training: bool = False):
-        """
-        Forward pass of the Router module.
+class ExpertLayer(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.fc1 = nn.Linear(config.n_embd, config.expert_ffn_size)
+        self.fc2 = nn.Linear(config.expert_ffn_size, config.n_embd)
+        self.dropout = nn.Dropout(config.dropout)
+        self.act = nn.GELU()
 
-        Args:
-            inputs (torch.Tensor): Input tensor.
-            training (bool): Whether the model is in training mode or not.
-
-        Returns:
-            torch.Tensor: Routing probabilities over the experts.
-        """
-        routing_logits = self.router_weights(inputs)
-        if training:
-            routing_logits = routing_logits + torch.randn_like(routing_logits) * self.noise_std
-        routing_probs = F.softmax(routing_logits, dim=-1)
-        return routing_probs
-
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
 
 class MoELayer(nn.Module):
-    def __init__(self, model_dim, expert_hidden_dim, tot_num_experts, chosen_num_experts, noise_std):
-        """
-        Initialize a Mixture of Experts (MoE) Layer module.
-
-        Args:
-            model_dim (int): Dimensionality of the input to the MoE layer.
-            expert_hidden_dim (int): Dimensionality of the hidden layer within each expert.
-            tot_num_experts (int): Total number of experts in the mixture.
-            chosen_num_experts (int): Number of experts to use for each input.
-            noise_std (float): Standard deviation of Gaussian noise added during training for exploration.
-        """
+    def __init__(self, config):
         super().__init__()
-        self.model_dim = model_dim
-        self.tot_num_experts = tot_num_experts
-        self.chosen_num_experts = chosen_num_experts
-        self.experts = nn.ModuleList([Expert(model_dim, expert_hidden_dim) for _ in range(tot_num_experts)])
-        self.router = Router(model_dim, tot_num_experts, noise_std)
+        # Use consistent configuration parameters
+        self.num_experts = config.num_experts
+        self.input_size = config.hidden_size  # Use hidden_size instead of n_embd
+        self.hidden_size = config.hidden_size
+        self.expert_hidden_size = config.expert_ffn_size
+        self.top_k = config.top_k
+        
+        # Router
+        self.router = Router(self.input_size, self.num_experts, self.top_k)
+        
+        # Experts
+        self.experts = nn.ModuleList([
+            Expert(self.hidden_size, self.expert_hidden_size) 
+            for _ in range(self.num_experts)
+        ])
+        
+        self.dropout = nn.Dropout(config.dropout)
+        self.layer_norm = nn.LayerNorm(self.hidden_size)
 
-    def forward(self, inputs, training: bool = False):
-        """
-        Forward pass of the MoE Layer module.
+    def forward(self, x, training=False):  # Add training parameter
+        identity = x
+        x = self.layer_norm(x)
+        
+        # Get routing weights and expert assignments
+        router_mask, expert_indices = self.router(x)
+        
+        # Process input through experts
+        expert_outputs = torch.zeros_like(x)
+        for i in range(self.num_experts):
+            expert_mask = router_mask[:, :, i].unsqueeze(-1)
+            if expert_mask.any():
+                expert_output = self.experts[i](x)
+                expert_outputs += expert_output * expert_mask
+        
+        output = self.dropout(expert_outputs)
+        return output + identity, router_mask  # Return routing mask for loss calculation
 
-        Args:
-            inputs (torch.Tensor): Input tensor.
-            training (bool): Whether the model is in training mode or not.
-
-        Returns:
-            torch.Tensor: MoE output tensor.
-            torch.Tensor: Routing probabilities over the experts.
-        """
-        b, seq_len, _ = inputs.shape
-
-        # Get the output of all the experts
-        expert_outputs = [expert(inputs.view(-1, self.model_dim)) for expert in self.experts]
-        expert_outputs = torch.cat(expert_outputs, dim=0).view(b, seq_len, self.tot_num_experts, self.model_dim)
-
-        # Get the output of the router and create the expert mask
-        routing_probs = F.softmax(self.router(inputs), dim=-1)
-        with torch.no_grad():
-            expert_indices = torch.topk(routing_probs, k=self.chosen_num_experts, sorted=True).indices
-            multi_hot_indices = torch.zeros(b, seq_len, self.tot_num_experts, device=inputs.device)
-            multi_hot_indices = multi_hot_indices.scatter(2, expert_indices, 1)
-
-        # Apply the multi-hot mask (first expand dimensions for broadcasting)
-        multi_hot_expanded = multi_hot_indices.unsqueeze(-1).expand_as(expert_outputs)
-        output_masked = expert_outputs * multi_hot_expanded.float()
-
-        # Weight our experts' outputs by the softmax values (which we first must broadcast to the right shape) and sum them
-        routing_probs_expanded = routing_probs.unsqueeze(-1).expand_as(output_masked)
-        MoE_output = (output_masked * routing_probs_expanded).sum(dim=2)
-
-        return MoE_output, routing_probs  # Also output routing_probs to be used in the loss function later
+def load_balancing_loss(router_mask):
+    """Calculate load balancing loss for expert routing"""
+    # Calculate expert usage
+    expert_usage = router_mask.sum(dim=[0, 1])  # Sum over batch and sequence
+    # Ideal balanced load
+    ideal_load = torch.ones_like(expert_usage) * router_mask.sum() / len(expert_usage)
+    # Calculate loss
+    loss = torch.mean((expert_usage - ideal_load) ** 2)
+    return loss
 

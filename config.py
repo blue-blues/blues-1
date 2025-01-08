@@ -6,18 +6,18 @@ import os
 
 @dataclass
 class BluesConfig:
-    # Reduced model architecture
-    n_layer: int = 6           # Reduced from 12
-    n_head: int = 8           # Reduced from 12
-    n_embd: int = 512         # Reduced from 768
-    head_dim: int = 64        # n_embd // n_head
-    vocab_size: int = 200020
-    block_size: int = 512     # Reduced from 1024
-    max_position_embeddings: int = 512
+    # Model architecture for 1.2B-2B parameters
+    n_layer: int = 32            # Increased from 6 to 32
+    n_head: int = 32            # Increased from 8 to 32
+    n_embd: int = 2048          # Increased from 512 to 2048
+    head_dim: int = 64          # Keeping head_dim same
+    vocab_size: int = 100250    # Same vocab size
+    block_size: int = 2048      # Increased from 512 to 2048
+    max_position_embeddings: int = 2048  # Match block_size
     bias: bool = False
     
-    # Reduced MQA settings
-    num_key_value_heads: int = 2  # Reduced from 4
+    # Optimized MQA settings for large models
+    num_key_value_heads: int = 8    # Increased KV heads
     num_key_value_groups: int = n_head // num_key_value_heads
     use_multiquery: bool = True
     
@@ -25,19 +25,19 @@ class BluesConfig:
     rms_norm_eps: float = 1e-5
     use_scale: bool = True
     
-    # MoE settings (reduced)
-    tot_num_experts: int = 4   # Reduced from 8
-    chosen_num_experts: int = 1  # Reduced from 2
-    embedding_multiplier_scale: int = 2  # Reduced from 4
-    noise_std: float = 1.0  # Noise for expert routing
-    lambadada: float = 0.01  # MoE loss coefficient
+    # Enhanced MoE settings for better scaling
+    tot_num_experts: int = 16       # Increased from 4 to 16
+    chosen_num_experts: int = 2      # Using 2 experts per token
+    embedding_multiplier_scale: int = 4  # Increased for better capacity
+    noise_std: float = 0.1          # Reduced noise for stability
+    lambadada: float = 0.005        # Reduced MoE loss coefficient
     
-    # RoPE settings
-    rope_theta: float = 10000.0  # Base frequency
-    rope_scaling: Optional[float] = None  # Scaling factor for RoPE
+    # RoPE settings optimized for longer sequences
+    rope_theta: float = 10000.0
+    rope_scaling: Optional[float] = 1.0  # Enable RoPE scaling
     rope_scaling_factor: float = 1.0
-    rope_ntk_flag: bool = False  # NTK scaling flag
-    use_dynamic_ntk: bool = False  # Dynamic NTK scaling
+    rope_ntk_flag: bool = True      # Enable NTK scaling
+    use_dynamic_ntk: bool = True    # Enable dynamic NTK
     
     # Alias attributes for model compatibility
     @property
@@ -68,23 +68,25 @@ class BluesConfig:
     # Device setting
     device: str = DEFAULT_SETTINGS['device']
     
-    # Training
-    dropout: float = DEFAULT_SETTINGS['dropout']
-    gradient_checkpointing: bool = False
+    # Training stability settings
+    dropout: float = 0.1            # Increased dropout
+    gradient_checkpointing: bool = True  # Enable by default
     
     # Expert settings
-    num_experts: int = 8
-    expert_capacity: int = 32
+    num_experts: int = 16           # Match tot_num_experts
+    expert_capacity: int = 64       # Increased capacity
     moe_layers: list = None
+    expert_ffn_size: int = None     # Will be 4 * hidden_size in post_init
+    top_k: int = 2                  # Keep top 2 experts
     
     # Model parallel settings
-    expert_parallel: bool = False
-    tensor_parallel: bool = False
+    expert_parallel: bool = True
+    tensor_parallel: bool = True
     pipeline_parallel: bool = False
     
     # Flash attention settings
     flash_attn: bool = DEFAULT_SETTINGS['flash_optimizations']['use_flash_attn']
-    mem_efficient: bool = DEFAULT_SETTINGS['flash_optimizations']['mem_efficient']
+    mem_efficient: bool = True
     
     # Special tokens (will be set later)
     pad_token_id: Optional[int] = None
@@ -93,6 +95,9 @@ class BluesConfig:
     
     # Quantization
     bits: Optional[int] = None
+    
+    # Updated MoE configuration
+    use_moe: bool = True
     
     def __post_init__(self):
         # Verify and adjust dimensions
@@ -112,6 +117,46 @@ class BluesConfig:
         # Verify MoE settings
         assert self.chosen_num_experts <= self.tot_num_experts, \
             "Chosen experts must be less than or equal to total experts"
+        
+        # Set expert FFN size if not explicitly specified
+        if self.expert_ffn_size is None:
+            self.expert_ffn_size = 4 * self.hidden_size
+            
+        # Verify MoE settings
+        assert self.top_k <= self.num_experts, \
+            "top_k must be less than or equal to num_experts"
+        
+        # Additional validations for large model
+        assert self.block_size == self.max_position_embeddings, \
+            "block_size must match max_position_embeddings"
+        assert self.n_embd % self.n_head == 0, \
+            "embedding dimension must be divisible by number of heads"
+        
+        # Calculate and print model size
+        num_params = self._calculate_params()
+        print(f"Model size: {num_params/1e9:.2f}B parameters")
+    
+    def _calculate_params(self):
+        """Calculate approximate number of parameters"""
+        # Embeddings
+        embed_params = self.vocab_size * self.n_embd
+        pos_embed_params = self.max_position_embeddings * self.n_embd
+        
+        # Per layer
+        mha_params = 4 * self.n_embd * self.n_embd  # Q,K,V,O matrices
+        expert_params = self.num_experts * (
+            2 * self.n_embd * self.expert_ffn_size +  # Up/down projections
+            self.expert_ffn_size * self.n_embd        # Output projection
+        )
+        
+        # Total
+        total_params = (
+            embed_params +
+            pos_embed_params +
+            (mha_params + expert_params) * self.n_layer
+        )
+        
+        return total_params
 
     def set_special_tokens(self, pad_token, start_token, end_token):
         """Set special token IDs after tokenizer is initialized"""
@@ -138,6 +183,13 @@ class BluesConfig:
             self.gradient_checkpointing = True
             self.num_key_value_heads = min(self.num_key_value_heads, 4)
             print("Adjusted model settings for standard attention")
+    
+    def update_moe_settings(self, num_experts=None, top_k=None):
+        """Update MoE settings based on available resources"""
+        if num_experts is not None:
+            self.num_experts = num_experts
+        if top_k is not None:
+            self.top_k = min(top_k, self.num_experts)
 
 # Add checkpoint directory configuration
 checkpoint_dir = os.path.join(os.path.dirname(__file__), 'checkpoints')
