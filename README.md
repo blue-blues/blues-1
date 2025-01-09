@@ -42,8 +42,6 @@ config = BluesConfig(
 )
 ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 ## TODO List & Implementation Roadmap
 
 ### 1. Representation Learning
@@ -188,7 +186,6 @@ config = BluesConfig(
 ## Training
 =======
 ## Installation
->>>>>>> 47b3f217d181ac11672a37f8dd92db4c5da8b3d8
 =======
 ## TODO List & Implementation Status
 
@@ -253,7 +250,6 @@ config = BluesConfig(
 | Flash Attn V2 | High | Low | 5 |
 
 ## Installation
->>>>>>> 693e12f (contrastive basic)
 
 1. Clone the repository:
 ```bash
@@ -677,6 +673,6 @@ If you use this code in your research, please cite:
   title = {Blues},
   author = {vaibhavg Gavade},
   year = {2024},
-  url = {https://github.com/yourusername/blues-moe}
+  url = {vaibhavgavade.com}
 }
 ```
