@@ -37,8 +37,6 @@ class blues(nn.Module):
         self.embedder.weight.data = self.embedder.weight.data.to(torch.float32)
         self.pos_embedding.weight.data = self.pos_embedding.weight.data.to(torch.float32)
 
-<<<<<<< HEAD
-=======
         # Add projection head for contrastive learning
         self.projection_head = nn.Sequential(
             nn.Linear(config.hidden_size, config.hidden_size),
@@ -50,7 +48,21 @@ class blues(nn.Module):
         for param in self.projection_head.parameters():
             param.data = param.data.to(torch.float32)
 
->>>>>>> 693e12f (contrastive basic)
+        # Ensure consistent dtype for all parameters
+        self.to(torch.float32)
+        
+        # Convert all buffers to float32 as well
+        for buffer in self.buffers():
+            if buffer.dtype != torch.float32 and buffer.is_floating_point():
+                buffer.data = buffer.data.to(torch.float32)
+        
+        # Special handling for embeddings
+        self.embedder = self.embedder.to(torch.float32)
+        self.pos_embedding = self.pos_embedding.to(torch.float32)
+        
+        if hasattr(self, 'projection_head'):
+            self.projection_head = self.projection_head.to(torch.float32)
+
     def _validate_input(self, input_ids):
         """Validate and clean input token IDs"""
         input_ids = input_ids.to(torch.long)  # Ensure long dtype for embeddings
@@ -79,9 +91,6 @@ class blues(nn.Module):
         cum_var = expert_variance.sum()
         return cum_var
 
-<<<<<<< HEAD
-    def forward(self, input_token_ids: torch.Tensor, target_token_ids: torch.Tensor = None) -> torch.Tensor:
-=======
     def get_representation(self, input_ids):
         """Get sequence representation for contrastive learning"""
         input_ids = self._validate_input(input_ids)
@@ -151,72 +160,32 @@ class blues(nn.Module):
             target_token_ids: Target token IDs for language modeling
             contrast_ids: Token IDs for contrastive learning
         """
->>>>>>> 693e12f (contrastive basic)
         training = target_token_ids is not None
         
         # Validate inputs
         input_token_ids = self._validate_input(input_token_ids)
         if target_token_ids is not None:
             target_token_ids = self._validate_input(target_token_ids)
-<<<<<<< HEAD
-        
-        # Ensure input dtypes
-        input_token_ids = input_token_ids.to(torch.long)
-        if target_token_ids is not None:
-            target_token_ids = target_token_ids.to(torch.long)
-        
-        # Apply both token and position embeddings
-=======
         if contrast_ids is not None:
             contrast_ids = self._validate_input(contrast_ids)
         
         # Regular language modeling forward pass
->>>>>>> 693e12f (contrastive basic)
         token_embeddings = self.embedder(input_token_ids)
         positions = torch.arange(0, input_token_ids.size(1), device=input_token_ids.device)
         pos_embeddings = self.pos_embedding(positions).unsqueeze(0)
         x = (token_embeddings + pos_embeddings) * self.config.hidden_size ** 0.5
-<<<<<<< HEAD
-        routing_probs_list = []
-        
-        def create_custom_forward(layer):
-            def custom_forward(*inputs):
-                x = inputs[0]
-                return layer(x, training)
-            return custom_forward
-
-        for layer in self.layers:
-            if self.gradient_checkpointing and self.training:
-                layer_output = checkpoint.checkpoint(
-                    create_custom_forward(layer),
-=======
         
         routing_probs_list = []
         for layer in self.layers:
             if self.gradient_checkpointing and self.training:
                 layer_output = checkpoint.checkpoint(
                     lambda x: layer(x, training),
->>>>>>> 693e12f (contrastive basic)
                     x,
                     use_reentrant=False
                 )
                 x, routing_probs = layer_output
             else:
                 x, routing_probs = layer(x, training)
-<<<<<<< HEAD
-                
-            if training:
-                routing_probs_list.append(routing_probs)
-        x = self.final_norm(x)
-        logits = torch.matmul(x, self.embedder.weight.t())
-        if training:
-            batch_size, input_len, vocab_size = logits.shape
-            CEloss = self.criterion(logits.view(batch_size * input_len, vocab_size), target_token_ids.view(batch_size * input_len))
-            MoEloss = self.calc_moe_loss(routing_probs_list)
-            loss = CEloss + MoEloss * self.lambadada
-        else:
-            loss = None
-=======
             
             if training:
                 routing_probs_list.append(routing_probs)
@@ -245,7 +214,6 @@ class blues(nn.Module):
         else:
             loss = None
             
->>>>>>> 693e12f (contrastive basic)
         return logits, loss
 
     @torch.no_grad()

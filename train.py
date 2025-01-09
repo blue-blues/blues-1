@@ -1,9 +1,6 @@
 import os
 import torch
-<<<<<<< HEAD
-=======
 import torch.nn.functional as F  # Add this import
->>>>>>> 693e12f (contrastive basic)
 import time
 import json
 from model import blues
@@ -122,8 +119,9 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
     best_loss = float('inf')
     checkpoint = None
     
-    # Initialize model and ensure consistent dtype
-    model = blues(config, tokenizer).to(device)
+    # Initialize model and move to device before creating optimizer
+    model = blues(config, tokenizer)
+    model = model.to(device)
     model = model.to(torch.float32)
     
     # Load checkpoint if resuming
@@ -243,12 +241,26 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
         optimizer_settings['lr'] = default_optimizer_settings['lr'] * 0.5
     
     print(f"Using optimizer settings: {optimizer_settings}")
+    
+    # Ensure all model parameters are on the same device before creating optimizer
+    for param in model.parameters():
+        if param.device != device:
+            param.data = param.data.to(device)
+        if param.dtype != torch.float32:
+            param.data = param.data.to(torch.float32)
+    
     optimizer = torch.optim.AdamW(model.parameters(), **optimizer_settings)
     
     # Load optimizer state if checkpoint is available
     if checkpoint is not None and 'optimizer_state_dict' in checkpoint:
         try:
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            # Move optimizer state to correct device
+            optimizer_state = checkpoint['optimizer_state_dict']
+            for state in optimizer_state['state'].values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        state[k] = v.to(device)
+            optimizer.load_state_dict(optimizer_state)
             print("Resumed optimizer state")
         except Exception as e:
             print(f"Error loading optimizer state: {e}")
@@ -256,62 +268,6 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
     
     return model, optimizer, start_iter, best_loss
 
-<<<<<<< HEAD
-def train_step(model, optimizer, x, y, use_deepspeed=True, scaler=None):
-    """Memory efficient training step"""
-    try:
-        batch_size = x.size(0)
-        if batch_size == 0:
-            print("Warning: Received empty batch, skipping step")
-            return 0.0
-            
-        # Ensure sub_batch_size is at least 1
-        sub_batch_size = max(1, min(32, batch_size))
-        total_loss = 0
-        
-        num_sub_batches = (batch_size + sub_batch_size - 1) // sub_batch_size  # Ceiling division
-        if num_sub_batches == 0:
-            print("Warning: Invalid batch configuration")
-            return 0.0
-            
-        for i in range(0, batch_size, sub_batch_size):
-            end_idx = min(i + sub_batch_size, batch_size)
-            sub_x = x[i:end_idx]
-            sub_y = y[i:end_idx]
-            
-            if sub_x.size(0) == 0 or sub_y.size(0) == 0:
-                print(f"Warning: Empty sub-batch detected at index {i}")
-                continue
-                
-            # Update autocast to use new syntax
-            try:
-                if scaler is not None:
-                    with torch.amp.autocast('cuda', enabled=True):
-                        logits, loss = model(sub_x, sub_y)
-                        loss = loss / num_sub_batches  # Use calculated num_sub_batches
-                    scaler.scale(loss).backward()
-                else:
-                    logits, loss = model(sub_x, sub_y)
-                    loss = loss / num_sub_batches  # Use calculated num_sub_batches
-                    loss.backward()
-                
-                total_loss += loss.item()
-                del logits, loss
-                torch.cuda.empty_cache() if torch.cuda.is_available() else None
-                
-            except RuntimeError as e:
-                print(f"Error processing sub-batch: {str(e)}")
-                continue
-        
-        return total_loss
-        
-    except Exception as e:
-        print(f"Error in train_step: {str(e)}")
-        print(f"Batch size: {batch_size if 'batch_size' in locals() else 'unknown'}")
-        print(f"Sub-batch size: {sub_batch_size if 'sub_batch_size' in locals() else 'unknown'}")
-        raise e
-
-=======
 def train_step(model, optimizer, x, y, contrast_x=None, use_deepspeed=True, scaler=None):
     """Modified training step to handle contrastive learning"""
     try:
@@ -412,7 +368,6 @@ def get_contrastive_batch(batch_x, model, device):
     
     return contrast_x
 
->>>>>>> 693e12f (contrastive basic)
 def verify_data_cache():
     """Verify that preprocessed data exists"""
     metadata_file = os.path.join(data_cache_dir, 'metadata.pkl')
@@ -639,27 +594,15 @@ def main():
                 for accum_step in range(gradient_accumulation_steps):
                     try:
                         x, y = get_batch('train', effective_batch_size, max_seq_len, device)
-<<<<<<< HEAD
-                        
-                        # Validate batch data
-                        if x.size(0) == 0 or y.size(0) == 0:
-                            print(f"Warning: Skipping empty batch in accumulation step {accum_step}")
-                            continue
-                            
-=======
                         # Generate contrastive pairs
                         contrast_x = get_contrastive_batch(x, model, device)
                         
->>>>>>> 693e12f (contrastive basic)
                         loss = train_step(
                             model=model,
                             optimizer=optimizer,
                             x=x,
                             y=y,
-<<<<<<< HEAD
-=======
                             contrast_x=contrast_x,
->>>>>>> 693e12f (contrastive basic)
                             use_deepspeed=use_deepspeed,
                             scaler=scaler
                         )

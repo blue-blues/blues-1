@@ -30,11 +30,7 @@ DEFAULT_SETTINGS = {
     # Data settings
     'dataset': "df_file.csv",
     'data_cache_dir': "data_cache",
-<<<<<<< HEAD
     'chunk_size': 500,        # Reduced from 1000
-=======
-    'chunk_size': 50000,        # Reduced from 1000
->>>>>>> 693e12f (contrastive basic)
     'chunk_memory_limit': 256 * 1024 * 1024,  # 256MB per chunk
     'verify_data_loading': True,
     'checkpoint_dir': "checkpoints",
@@ -48,6 +44,7 @@ DEFAULT_SETTINGS = {
         'streaming': True,
         'text_column': 'text',
         'cache_dir': 'hf_cache'
+        'data_dir': 'data_cache/hf_datasets',
     },
 
     # Dataset merging settings
