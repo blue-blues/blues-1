@@ -37,7 +37,7 @@ config = BluesConfig(
     num_key_value_heads=2,   # Number of KV heads
     num_experts=8,           # Number of experts per MoE layer
     top_k=2,                # Number of experts to route to
-    vocab_size=200020,      # Vocabulary size
+    vocab_size=100250,      # Vocabulary size
     block_size=512          # Maximum sequence length
 )
 ```
