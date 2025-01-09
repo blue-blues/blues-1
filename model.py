@@ -37,6 +37,20 @@ class blues(nn.Module):
         self.embedder.weight.data = self.embedder.weight.data.to(torch.float32)
         self.pos_embedding.weight.data = self.pos_embedding.weight.data.to(torch.float32)
 
+<<<<<<< HEAD
+=======
+        # Add projection head for contrastive learning
+        self.projection_head = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.ReLU(),
+            nn.Linear(config.hidden_size, config.projection_dim)
+        )
+        
+        # Initialize projection head weights as float32
+        for param in self.projection_head.parameters():
+            param.data = param.data.to(torch.float32)
+
+>>>>>>> 693e12f (contrastive basic)
     def _validate_input(self, input_ids):
         """Validate and clean input token IDs"""
         input_ids = input_ids.to(torch.long)  # Ensure long dtype for embeddings
@@ -65,13 +79,86 @@ class blues(nn.Module):
         cum_var = expert_variance.sum()
         return cum_var
 
+<<<<<<< HEAD
     def forward(self, input_token_ids: torch.Tensor, target_token_ids: torch.Tensor = None) -> torch.Tensor:
+=======
+    def get_representation(self, input_ids):
+        """Get sequence representation for contrastive learning"""
+        input_ids = self._validate_input(input_ids)
+        token_embeddings = self.embedder(input_ids)
+        positions = torch.arange(0, input_ids.size(1), device=input_ids.device)
+        pos_embeddings = self.pos_embedding(positions).unsqueeze(0)
+        x = (token_embeddings + pos_embeddings) * self.config.hidden_size ** 0.5
+        
+        routing_probs_list = []
+        for layer in self.layers:
+            x, routing_probs = layer(x, False)
+            routing_probs_list.append(routing_probs)
+            
+        x = self.final_norm(x)  # Shape: [batch_size, seq_len, hidden_size]
+        
+        # Fix mask creation by ensuring pad_token is an integer
+        pad_token = int(getattr(self.config, 'pad_token_id', 0))
+        # Create padding mask and convert to float
+        padding_mask = (input_ids != pad_token).to(dtype=torch.float32, device=x.device)
+        # Expand mask for broadcasting
+        attention_mask = padding_mask.unsqueeze(-1).expand(-1, -1, x.size(-1))
+        
+        # Apply mask and get mean representation
+        masked_x = x * attention_mask
+        denom = attention_mask.sum(dim=1) + 1e-9  # [batch_size, hidden_size]
+        sequence_rep = masked_x.sum(dim=1) / denom  # [batch_size, hidden_size]
+        
+        # Project to contrastive space
+        projected = self.projection_head(sequence_rep)
+        return F.normalize(projected, p=2, dim=-1)
+
+    def contrastive_loss(self, rep1, rep2, temperature=None):
+        """Compute pairwise contrastive loss with hard negative mining"""
+        if temperature is None:
+            temperature = self.config.temperature
+        
+        # Normalize representations
+        rep1 = F.normalize(rep1, p=2, dim=1)
+        rep2 = F.normalize(rep2, p=2, dim=1)
+        
+        # Compute similarity matrix
+        sim_matrix = torch.matmul(rep1, rep2.T) / temperature
+        
+        # Positive pairs are on the diagonal
+        labels = torch.arange(sim_matrix.size(0), device=sim_matrix.device)
+        
+        # Hard negative mining: find most similar negative pairs
+        mask = torch.eye(sim_matrix.size(0), device=sim_matrix.device) == 0
+        neg_sim = sim_matrix.masked_fill(~mask, -float('inf'))
+        hardest_neg_sim, _ = neg_sim.max(dim=1)
+        
+        # Compute loss with hard negative mining
+        pos_sim = sim_matrix.diag()
+        loss = -torch.log(
+            torch.exp(pos_sim) / 
+            (torch.exp(pos_sim) + torch.exp(hardest_neg_sim))
+        ).mean()
+        
+        return loss
+
+    def forward(self, input_token_ids: torch.Tensor, target_token_ids: torch.Tensor = None, 
+                contrast_ids: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass with optional contrastive learning
+        Args:
+            input_token_ids: Input token IDs
+            target_token_ids: Target token IDs for language modeling
+            contrast_ids: Token IDs for contrastive learning
+        """
+>>>>>>> 693e12f (contrastive basic)
         training = target_token_ids is not None
         
         # Validate inputs
         input_token_ids = self._validate_input(input_token_ids)
         if target_token_ids is not None:
             target_token_ids = self._validate_input(target_token_ids)
+<<<<<<< HEAD
         
         # Ensure input dtypes
         input_token_ids = input_token_ids.to(torch.long)
@@ -79,10 +166,17 @@ class blues(nn.Module):
             target_token_ids = target_token_ids.to(torch.long)
         
         # Apply both token and position embeddings
+=======
+        if contrast_ids is not None:
+            contrast_ids = self._validate_input(contrast_ids)
+        
+        # Regular language modeling forward pass
+>>>>>>> 693e12f (contrastive basic)
         token_embeddings = self.embedder(input_token_ids)
         positions = torch.arange(0, input_token_ids.size(1), device=input_token_ids.device)
         pos_embeddings = self.pos_embedding(positions).unsqueeze(0)
         x = (token_embeddings + pos_embeddings) * self.config.hidden_size ** 0.5
+<<<<<<< HEAD
         routing_probs_list = []
         
         def create_custom_forward(layer):
@@ -95,12 +189,21 @@ class blues(nn.Module):
             if self.gradient_checkpointing and self.training:
                 layer_output = checkpoint.checkpoint(
                     create_custom_forward(layer),
+=======
+        
+        routing_probs_list = []
+        for layer in self.layers:
+            if self.gradient_checkpointing and self.training:
+                layer_output = checkpoint.checkpoint(
+                    lambda x: layer(x, training),
+>>>>>>> 693e12f (contrastive basic)
                     x,
                     use_reentrant=False
                 )
                 x, routing_probs = layer_output
             else:
                 x, routing_probs = layer(x, training)
+<<<<<<< HEAD
                 
             if training:
                 routing_probs_list.append(routing_probs)
@@ -113,6 +216,36 @@ class blues(nn.Module):
             loss = CEloss + MoEloss * self.lambadada
         else:
             loss = None
+=======
+            
+            if training:
+                routing_probs_list.append(routing_probs)
+        
+        x = self.final_norm(x)
+        logits = torch.matmul(x, self.embedder.weight.t())
+        
+        # Calculate losses
+        if training:
+            batch_size, input_len, vocab_size = logits.shape
+            ce_loss = self.criterion(
+                logits.view(batch_size * input_len, vocab_size),
+                target_token_ids.view(batch_size * input_len)
+            )
+            
+            # Add MoE loss
+            moe_loss = self.calc_moe_loss(routing_probs_list)
+            loss = ce_loss + moe_loss * self.lambadada
+            
+            # Add contrastive loss if contrast_ids provided
+            if contrast_ids is not None:
+                rep1 = self.get_representation(input_token_ids)
+                rep2 = self.get_representation(contrast_ids)
+                cont_loss = self.contrastive_loss(rep1, rep2)
+                loss = loss + self.config.contrastive_loss_weight * cont_loss
+        else:
+            loss = None
+            
+>>>>>>> 693e12f (contrastive basic)
         return logits, loss
 
     @torch.no_grad()

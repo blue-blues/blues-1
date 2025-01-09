@@ -37,11 +37,16 @@ config = BluesConfig(
     num_key_value_heads=2,   # Number of KV heads
     num_experts=8,           # Number of experts per MoE layer
     top_k=2,                # Number of experts to route to
+<<<<<<< HEAD
     vocab_size=100250,      # Vocabulary size
+=======
+    vocab_size=100300,      # Vocabulary size
+>>>>>>> 693e12f (contrastive basic)
     block_size=512          # Maximum sequence length
 )
 ```
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 ## TODO List & Implementation Roadmap
 
@@ -188,6 +193,71 @@ config = BluesConfig(
 =======
 ## Installation
 >>>>>>> 47b3f217d181ac11672a37f8dd92db4c5da8b3d8
+=======
+## TODO List & Implementation Status
+
+### Completed Features ✅
+- [x] Basic model architecture implementation
+- [x] Multi-Query Attention (MQA) support
+- [x] Basic Mixture of Experts (MoE) system
+- [x] Flash Attention integration
+- [x] Gradient checkpointing
+- [x] Basic contrastive learning
+- [x] Dynamic batch sizing
+- [x] Memory-efficient attention
+
+### In Progress 🚧
+- [ ] Contrastive Learning Improvements
+  - [x] Basic pairwise contrastive loss
+  - [x] Token replacement strategy
+  - [ ] Multiple positive examples support
+  - [ ] Better augmentation strategies
+  - [ ] Improved similarity metrics
+
+- [ ] Expert System Enhancements
+  - [x] Basic expert routing
+  - [ ] Dynamic expert pruning
+  - [ ] Load balancing optimization
+  - [ ] Expert specialization tracking
+  - [ ] Adaptive routing thresholds
+
+### Upcoming Features 📅
+- [ ] Advanced Memory Management
+  - [ ] KV cache implementation
+  - [ ] Quantized cache storage
+  - [ ] Smart memory swapping
+  - [ ] Cache compression
+
+- [ ] Position Understanding
+  - [ ] Dynamic RoPE scaling
+  - [ ] NTK-aware position embeddings
+  - [ ] Extended context support
+  - [ ] Position aliasing reduction
+
+- [ ] Model Optimization
+  - [ ] Flash Attention V2 upgrade
+  - [ ] Model quantization
+  - [ ] Better checkpoint management
+  - [ ] Custom CUDA kernels
+
+- [ ] Training Improvements
+  - [ ] Progressive learning rates
+  - [ ] Custom loss functions
+  - [ ] Better error recovery
+  - [ ] Training metrics dashboard
+
+### Priority Matrix
+
+| Feature | Impact | Difficulty | Priority |
+|---------|---------|------------|-----------|
+| Contrastive Improvement | High | Medium | 1 |
+| Memory Management | High | High | 2 |
+| Expert Enhancement | High | Medium | 3 |
+| Position System | Medium | Medium | 4 |
+| Flash Attn V2 | High | Low | 5 |
+
+## Installation
+>>>>>>> 693e12f (contrastive basic)
 
 1. Clone the repository:
 ```bash

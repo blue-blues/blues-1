@@ -1,5 +1,9 @@
 import os
 import torch
+<<<<<<< HEAD
+=======
+import torch.nn.functional as F  # Add this import
+>>>>>>> 693e12f (contrastive basic)
 import time
 import json
 from model import blues
@@ -252,6 +256,7 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
     
     return model, optimizer, start_iter, best_loss
 
+<<<<<<< HEAD
 def train_step(model, optimizer, x, y, use_deepspeed=True, scaler=None):
     """Memory efficient training step"""
     try:
@@ -306,6 +311,108 @@ def train_step(model, optimizer, x, y, use_deepspeed=True, scaler=None):
         print(f"Sub-batch size: {sub_batch_size if 'sub_batch_size' in locals() else 'unknown'}")
         raise e
 
+=======
+def train_step(model, optimizer, x, y, contrast_x=None, use_deepspeed=True, scaler=None):
+    """Modified training step to handle contrastive learning"""
+    try:
+        batch_size = x.size(0)
+        if batch_size == 0:
+            return 0.0
+        
+        if scaler is not None:
+            with torch.amp.autocast('cuda', enabled=True):
+                logits, loss = model(x, y, contrast_x)
+                loss = loss / gradient_accumulation_steps
+            scaler.scale(loss).backward()
+        else:
+            logits, loss = model(x, y, contrast_x)
+            loss = loss / gradient_accumulation_steps
+            loss.backward()
+        
+        return loss.item() if loss is not None else 0.0
+        
+    except Exception as e:
+        print(f"Error in train_step: {str(e)}")
+        # Add stack trace for debugging if needed
+        import traceback
+        traceback.print_exc()
+        raise e
+
+def get_contrastive_batch(batch_x, model, device):
+    """Generate contrastive pairs using model's tokenizer and embeddings"""
+    contrast_x = batch_x.clone()
+    batch_size, seq_len = contrast_x.shape
+    
+    # Get vocabulary size from model
+    vocab_size = model.vocab_size
+    
+    # Get padding token if available, otherwise use 0
+    # Ensure pad_token is an integer
+    pad_token = getattr(model.config, 'pad_token_id', 0)
+    if not isinstance(pad_token, int):
+        pad_token = 0  # Fallback to 0 if pad_token is not an integer
+    
+    # Get embeddings for similarity-based token replacement
+    with torch.no_grad():
+        # Get token embeddings from model's embedding layer
+        token_embeddings = model.embedder.weight.detach()
+        # Normalize embeddings for cosine similarity
+        normalized_embeddings = F.normalize(token_embeddings, p=2, dim=1)
+    
+    # Define augmentation strategies with probabilities
+    aug_probs = torch.tensor([0.4, 0.3, 0.3], device=device)  # [replace_similar, local_shuffle, delete]
+    
+    for i in range(batch_size):
+        # Choose augmentation strategy
+        strategy = torch.multinomial(aug_probs, 1).item()
+        
+        # Create mask tensor for non-padding tokens using integer comparison
+        mask = (contrast_x[i] != pad_token)
+        mask = mask.to(device)  # Move mask to device after creation
+        valid_positions = torch.nonzero(mask).squeeze(-1)
+        
+        if valid_positions.numel() == 0:
+            continue
+            
+        # Number of positions to augment
+        num_aug = max(1, int(valid_positions.numel() * 0.15))  # Augment 15% of tokens
+        perm = torch.randperm(valid_positions.numel(), device=device)
+        aug_positions = valid_positions[perm[:num_aug]]
+        
+        if strategy == 0:  # replace_similar
+            for pos in aug_positions:
+                orig_token = contrast_x[i, pos]
+                orig_embedding = normalized_embeddings[orig_token].to(device)
+                similarities = torch.matmul(normalized_embeddings.to(device), orig_embedding)
+                # Exclude the original token from similar tokens
+                similarities[orig_token] = -float('inf')
+                similar_tokens = torch.topk(similarities, k=5, dim=0)[1]
+                new_token = similar_tokens[torch.randint(0, 5, (1,), device=device)]
+                contrast_x[i, pos] = new_token
+                
+        elif strategy == 1:  # local_shuffle
+            for pos in aug_positions:
+                window_start = max(0, pos - 2)
+                window_end = min(seq_len, pos + 3)
+                window = contrast_x[i, window_start:window_end]
+                window_mask = (window != pad_token)
+                window_mask = window_mask.to(device)
+                valid_window_indices = torch.nonzero(window_mask).squeeze(-1)
+                if valid_window_indices.numel() > 1:
+                    perm = torch.randperm(valid_window_indices.numel(), device=device)
+                    shuffled = window[valid_window_indices][perm]
+                    window[valid_window_indices] = shuffled
+                    contrast_x[i, window_start:window_end] = window
+                        
+        else:  # delete
+            # Sort positions in descending order to avoid shifting issues
+            for pos in sorted(aug_positions.tolist(), reverse=True):
+                contrast_x[i, pos:-1] = contrast_x[i, pos+1:].clone()
+                contrast_x[i, -1] = pad_token
+    
+    return contrast_x
+
+>>>>>>> 693e12f (contrastive basic)
 def verify_data_cache():
     """Verify that preprocessed data exists"""
     metadata_file = os.path.join(data_cache_dir, 'metadata.pkl')
@@ -532,17 +639,27 @@ def main():
                 for accum_step in range(gradient_accumulation_steps):
                     try:
                         x, y = get_batch('train', effective_batch_size, max_seq_len, device)
+<<<<<<< HEAD
                         
                         # Validate batch data
                         if x.size(0) == 0 or y.size(0) == 0:
                             print(f"Warning: Skipping empty batch in accumulation step {accum_step}")
                             continue
                             
+=======
+                        # Generate contrastive pairs
+                        contrast_x = get_contrastive_batch(x, model, device)
+                        
+>>>>>>> 693e12f (contrastive basic)
                         loss = train_step(
                             model=model,
                             optimizer=optimizer,
                             x=x,
                             y=y,
+<<<<<<< HEAD
+=======
+                            contrast_x=contrast_x,
+>>>>>>> 693e12f (contrastive basic)
                             use_deepspeed=use_deepspeed,
                             scaler=scaler
                         )
