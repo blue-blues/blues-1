@@ -257,7 +257,7 @@ config = BluesConfig(
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/blues-moe.git
+git clone https://github.com/blue-blues/blues-1
 cd blues-moe
 ```
 
