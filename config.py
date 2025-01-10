@@ -26,7 +26,7 @@ class BluesConfig:
     use_scale: bool = True
     
     # Enhanced MoE settings for better scaling
-    tot_num_experts: int = 16       # Increased from 4 to 16
+    tot_num_experts: int = 4       # Increased from 4 to 16
     chosen_num_experts: int = 2      # Using 2 experts per token
     embedding_multiplier_scale: int = 4  # Increased for better capacity
     noise_std: float = 0.1          # Reduced noise for stability
