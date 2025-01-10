@@ -100,7 +100,7 @@ class BluesConfig:
     gradient_checkpointing: bool = True  # Enable by default
     
     # Expert settings
-    num_experts: int = 16           # Match tot_num_experts
+    num_experts: int = 4           # Match tot_num_experts
     expert_capacity: int = 64       # Increased capacity
     moe_layers: list = None
     expert_ffn_size: int = None     # Will be 4 * hidden_size in post_init
