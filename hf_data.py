@@ -73,7 +73,6 @@ class HFDatasetLoader:
                 self.subset,
                 split=self.split,
                 cache_dir=self.cache_dir
-                data_dir=self.data_dir,
             )
             
             # Compute dataset statistics

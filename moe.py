@@ -256,6 +256,8 @@ class ExpertLayer(nn.Module):
         x = self.fc2(x)
         return x
 
+from expert_pruning import DynamicExpertPruning
+
 class MoELayer(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -278,6 +280,11 @@ class MoELayer(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
         self.layer_norm = nn.LayerNorm(self.hidden_size)
 
+        # Initialize expert pruning with fallback values
+        enable_pruning = getattr(config, 'enable_expert_pruning', False)
+        self.expert_pruning = DynamicExpertPruning(config) if enable_pruning else None
+        self.training_step = 0
+
     def forward(self, x, training=False):  # Add training parameter
         identity = x
         x = self.layer_norm(x)
@@ -290,11 +297,36 @@ class MoELayer(nn.Module):
         for i in range(self.num_experts):
             expert_mask = router_mask[:, :, i].unsqueeze(-1)
             if expert_mask.any():
+                # Skip pruned experts
+                if self.expert_pruning and i in self.expert_pruning.state.pruned_experts:
+                    continue
                 expert_output = self.experts[i](x)
                 expert_outputs += expert_output * expert_mask
         
+        # Update expert pruning statistics
+        if self.expert_pruning is not None and training:
+            self.expert_pruning.update(expert_indices, router_mask)
+            self.expert_pruning.apply_to_parameters(self.experts)
+            self.training_step += 1
+        
         output = self.dropout(expert_outputs)
-        return output + identity, router_mask  # Return routing mask for loss calculation
+        return output + identity, router_mask
+
+    def get_pruning_stats(self):
+        """Get expert pruning statistics"""
+        if self.expert_pruning is not None:
+            return self.expert_pruning.get_expert_stats()
+        return None
+
+    def save_pruning_state(self, checkpoint):
+        """Save pruning state to checkpoint"""
+        if self.expert_pruning is not None:
+            checkpoint['pruning_state'] = self.expert_pruning.get_state_dict()
+
+    def load_pruning_state(self, checkpoint):
+        """Load pruning state from checkpoint"""
+        if self.expert_pruning is not None and 'pruning_state' in checkpoint:
+            self.expert_pruning.load_state_dict(checkpoint['pruning_state'])
 
 def load_balancing_loss(router_mask):
     """Calculate load balancing loss for expert routing"""

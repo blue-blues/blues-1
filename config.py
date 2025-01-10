@@ -39,6 +39,33 @@ class BluesConfig:
     rope_ntk_flag: bool = True      # Enable NTK scaling
     use_dynamic_ntk: bool = True    # Enable dynamic NTK
     
+    # Dynamic Expert Pruning settings - moved up with other primary settings
+    enable_expert_pruning: bool = True
+    pruning_interval: int = 1000    # Update pruning every N steps
+    min_expert_capacity: float = 0.2 # Minimum capacity before pruning
+    max_expert_growth: float = 1.5   # Maximum growth factor for experts
+    pruning_threshold: float = 0.01  # Activity threshold for pruning
+    growth_factor: float = 1.2       # Growth factor for active experts
+    expert_weights_lr: float = 1e-3  # Learning rate for expert importance
+    pruning_history_size: int = 100  # Size of history buffer for pruning decisions
+    
+    # Projection settings (must be defined before any optional settings)
+    projection_dim: Optional[int] = None    # Will be set to n_embd if None
+    use_projection: bool = True   # Enable projection layer by default
+    
+    # Special tokens with default values
+    pad_token_id: int = 0          # Default pad token ID
+    start_token_id: int = 1        # Default start token ID
+    end_token_id: int = 2          # Default end token ID
+    
+    # Contrastive Learning settings
+    temperature: float = 0.07        # Temperature for contrastive loss
+    use_contrastive: bool = True     # Enable contrastive learning
+    contrastive_loss_weight: float = 0.1  # Weight for contrastive loss (renamed from contrastive_weight)
+    projection_size: int = 128       # Size of projection head output
+    queue_size: int = 65536         # Memory queue size for contrastive learning
+    momentum: float = 0.999         # Momentum encoder update rate
+    
     # Alias attributes for model compatibility
     @property
     def hidden_size(self):
@@ -78,6 +105,7 @@ class BluesConfig:
     moe_layers: list = None
     expert_ffn_size: int = None     # Will be 4 * hidden_size in post_init
     top_k: int = 2                  # Keep top 2 experts
+    use_moe: bool = True            # Enable MoE by default
     
     # Model parallel settings
     expert_parallel: bool = True
@@ -88,11 +116,6 @@ class BluesConfig:
     flash_attn: bool = DEFAULT_SETTINGS['flash_optimizations']['use_flash_attn']
     mem_efficient: bool = True
     
-    # Special tokens (will be set later)
-    pad_token_id: Optional[int] = None
-    start_token_id: Optional[int] = None
-    end_token_id: Optional[int] = None
-    
     # Quantization
     bits: Optional[int] = None
     
@@ -100,6 +123,14 @@ class BluesConfig:
     use_moe: bool = True
     
     def __post_init__(self):
+        # Handle projection settings first
+        if self.projection_dim is None:
+            self.projection_dim = self.n_embd
+            
+        # Validate projection settings
+        if self.use_projection:
+            assert self.projection_dim > 0, "projection_dim must be positive"
+            
         # Verify and adjust dimensions
         assert self.n_embd % self.n_head == 0, "Embedding dim must be divisible by num heads"
         self.head_dim = self.n_embd // self.n_head
@@ -132,6 +163,36 @@ class BluesConfig:
         assert self.n_embd % self.n_head == 0, \
             "embedding dimension must be divisible by number of heads"
         
+        # Validate pruning settings
+        if self.enable_expert_pruning:
+            assert 0 < self.min_expert_capacity < 1, "min_expert_capacity must be between 0 and 1"
+            assert self.max_expert_growth > 1, "max_expert_growth must be greater than 1"
+            assert 0 < self.pruning_threshold < 1, "pruning_threshold must be between 0 and 1"
+            assert self.pruning_interval > 0, "pruning_interval must be positive"
+            assert self.pruning_history_size > 0, "pruning_history_size must be positive"
+        
+        # Validate contrastive learning settings
+        if self.use_contrastive:
+            assert self.temperature > 0, "temperature must be positive"
+            assert 0 <= self.contrastive_loss_weight <= 1, "contrastive_loss_weight must be between 0 and 1"
+            assert self.projection_size > 0, "projection_size must be positive"
+            assert self.queue_size > 0, "queue_size must be positive"
+            assert 0 <= self.momentum <= 1, "momentum must be between 0 and 1"
+        
+        # Set projection dimension if not specified
+        if self.projection_dim is None:
+            self.projection_dim = self.n_embd
+        
+        # Validate projection settings
+        if self.use_projection:
+            assert self.projection_dim > 0, "projection_dim must be positive"
+        
+        # Verify special tokens are properly set
+        assert isinstance(self.pad_token_id, int), "pad_token_id must be an integer"
+        assert isinstance(self.start_token_id, int), "start_token_id must be an integer"
+        assert isinstance(self.end_token_id, int), "end_token_id must be an integer"
+        assert self.pad_token_id >= 0, "pad_token_id must be non-negative"
+        
         # Calculate and print model size
         num_params = self._calculate_params()
         print(f"Model size: {num_params/1e9:.2f}B parameters")
@@ -160,9 +221,9 @@ class BluesConfig:
 
     def set_special_tokens(self, pad_token, start_token, end_token):
         """Set special token IDs after tokenizer is initialized"""
-        self.pad_token_id = pad_token
-        self.start_token_id = start_token
-        self.end_token_id = end_token
+        self.pad_token_id = int(pad_token) if pad_token is not None else 0
+        self.start_token_id = int(start_token) if start_token is not None else 1
+        self.end_token_id = int(end_token) if end_token is not None else 2
 
     def update_gpu_settings(self, flash_attn_available: bool, deepspeed_available: bool):
         """Update settings based on GPU feature availability"""

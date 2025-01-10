@@ -30,7 +30,7 @@ DEFAULT_SETTINGS = {
     # Data settings
     'dataset': "df_file.csv",
     'data_cache_dir': "data_cache",
-    'chunk_size': 500,        # Reduced from 1000
+    'chunk_size': 100000,        # Reduced from 1000
     'chunk_memory_limit': 256 * 1024 * 1024,  # 256MB per chunk
     'verify_data_loading': True,
     'checkpoint_dir': "checkpoints",
@@ -38,13 +38,12 @@ DEFAULT_SETTINGS = {
 
     # HuggingFace dataset settings
     'hf_dataset_config': {
-        'name': 'wikitext/wikitext-103-raw-v1',
+        'name': 'ytzi/the-stack-dedup-python-scored',
         'subset': None,
         'split': 'train',
         'streaming': True,
-        'text_column': 'text',
-        'cache_dir': 'hf_cache'
-        'data_dir': 'data_cache/hf_datasets',
+        'text_column': 'content',
+        'cache_dir': 'hf_cache',
     },
 
     # Dataset merging settings
