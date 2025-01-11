@@ -6,27 +6,25 @@ import os
 
 @dataclass
 class BluesConfig:
-    # Model architecture for 1.2B-2B parameters
-    n_layer: int = 32            # Increased from 6 to 32
-    n_head: int = 32            # Increased from 8 to 32
-    n_embd: int = 2048          # Increased from 512 to 2048
-    head_dim: int = 64          # Keeping head_dim same
-    vocab_size: int = 100300    # Same vocab size
-    block_size: int = 1024      # Increased from 512 to 2048
-    max_position_embeddings: int = 1024  # Match block_size
-    bias: bool = False
+    # Model architecture for ~0.5B parameters
+    n_layer: int = 24            # Reduced from 32
+    n_head: int = 16            # Reduced from 32
+    n_embd: int = 1024         # Reduced from 2048
+    head_dim: int = 64         # Keep same for stability
+    vocab_size: int = 100300   # Keep same for vocabulary coverage
+    block_size: int = 512      # Reduced from 1024
+    max_position_embeddings: int = 512  # Match block_size
     
-    # Optimized MQA settings for large models
-    num_key_value_heads: int = 8    # Increased KV heads
+    # Optimized MQA settings for medium-sized models
+    num_key_value_heads: int = 4    # Reduced from 8
     num_key_value_groups: int = n_head // num_key_value_heads
-    use_multiquery: bool = True
     
     # RMSNorm settings
     rms_norm_eps: float = 1e-5
     use_scale: bool = True
     
     # Enhanced MoE settings for better scaling
-    tot_num_experts: int = 4       # Increased from 4 to 16
+    tot_num_experts: int = 4       # Reduced from 16
     chosen_num_experts: int = 2      # Using 2 experts per token
     embedding_multiplier_scale: int = 4  # Increased for better capacity
     noise_std: float = 0.1          # Reduced noise for stability
@@ -101,7 +99,7 @@ class BluesConfig:
     
     # Expert settings
     num_experts: int = 4           # Match tot_num_experts
-    expert_capacity: int = 16       # Increased capacity
+    expert_capacity: int = 16       # Reduced from 32
     moe_layers: list = None
     expert_ffn_size: int = None     # Will be 4 * hidden_size in post_init
     top_k: int = 2                  # Keep top 2 experts

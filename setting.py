@@ -15,7 +15,7 @@ DEFAULT_SETTINGS = {
     # Training settings
     'learning_rate': 3e-4,
     'dropout': 0.1,
-    'batch_size': 1,         # Reduced from 32
+    'batch_size': 4,         # Increased from 1 due to smaller model
     'weight_decay': 0.02,
     'max_iters': 50000,
     'eval_interval': 500,
@@ -23,7 +23,7 @@ DEFAULT_SETTINGS = {
     'warmup_steps': 1000,
     'lr_decay_steps': 1000,
     'min_lr': 3e-5,
-    'gradient_accumulation_steps': 64,  # Increased from 4
+    'gradient_accumulation_steps': 32,  # Reduced from 64
     'max_grad_norm': 1.0,
     'min_batch_size': 1,
 
@@ -73,7 +73,7 @@ DEFAULT_SETTINGS = {
         'use_flash_attn': True,
         'mem_efficient': True,
         'enable_tiling': True,
-        'tile_size': 64,     # Reduced from 256
+        'tile_size': 128,     # Increased from 64
         'use_cuda_fp16': True,
     },
 
@@ -86,7 +86,7 @@ DEFAULT_SETTINGS = {
     },
 
     # Memory management
-    'memory_limit_mb': 24000,  # 8GB limit (leaving 3GB for system)
+    'memory_limit_mb': 8000,  # Reduced memory limit
 }
 
 # Initialize all settings as module-level variables
