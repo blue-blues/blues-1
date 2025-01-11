@@ -99,7 +99,7 @@ class BluesConfig:
     
     # Expert settings
     num_experts: int = 4           # Match tot_num_experts
-    expert_capacity: int = 16       # Reduced from 32
+    expert_capacity: int = 8       # Reduced from 32
     moe_layers: list = None
     expert_ffn_size: int = None     # Will be 4 * hidden_size in post_init
     top_k: int = 2                  # Keep top 2 experts
