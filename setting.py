@@ -15,7 +15,7 @@ DEFAULT_SETTINGS = {
     # Training settings
     'learning_rate': 3e-4,
     'dropout': 0.1,
-    'batch_size': 2,         # Reduced from 32
+    'batch_size': 1,         # Reduced from 32
     'weight_decay': 0.02,
     'max_iters': 50000,
     'eval_interval': 500,
@@ -25,7 +25,7 @@ DEFAULT_SETTINGS = {
     'min_lr': 3e-5,
     'gradient_accumulation_steps': 64,  # Increased from 4
     'max_grad_norm': 1.0,
-    'min_batch_size': 2,
+    'min_batch_size': 1,
 
     # Data settings
     'dataset': "df_file.csv",
