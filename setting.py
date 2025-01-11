@@ -30,7 +30,7 @@ DEFAULT_SETTINGS = {
     # Data settings
     'dataset': "df_file.csv",
     'data_cache_dir': "data_cache",
-    'chunk_size': 100000,        # Reduced from 1000
+    'chunk_size': 10000,        # Reduced from 1000
     'chunk_memory_limit': 256 * 1024 * 1024,  # 256MB per chunk
     'verify_data_loading': True,
     'checkpoint_dir': "checkpoints",
@@ -73,7 +73,7 @@ DEFAULT_SETTINGS = {
         'use_flash_attn': True,
         'mem_efficient': True,
         'enable_tiling': True,
-        'tile_size': 128,     # Reduced from 256
+        'tile_size': 64,     # Reduced from 256
         'use_cuda_fp16': True,
     },
 
@@ -86,7 +86,7 @@ DEFAULT_SETTINGS = {
     },
 
     # Memory management
-    'memory_limit_mb': 12000,  # 12GB limit (leaving 3GB for system)
+    'memory_limit_mb': 24000,  # 8GB limit (leaving 3GB for system)
 }
 
 # Initialize all settings as module-level variables
@@ -112,6 +112,6 @@ max_grad_norm = DEFAULT_SETTINGS['max_grad_norm']
 min_batch_size = DEFAULT_SETTINGS['min_batch_size']
 
 # Memory management
-memory_limit_mb = 12000  # 12GB limit
+memory_limit_mb = 24000  # 8GB limit
 min_batch_size = 1
 max_batch_size = 32
