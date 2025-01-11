@@ -176,6 +176,16 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
     # Apply optimizations
     model = optimize_model_for_training(model, config)
     
+    # Add explicit memory cleanup
+    torch.cuda.empty_cache()
+    
+    # Enable gradient checkpointing by default
+    model.gradient_checkpointing_enable()
+    
+    # Set model to use mixed precision by default
+    if use_gpu:
+        model.half()  # Convert to FP16
+    
     if use_deepspeed:
         try:
             # Check available GPU memory before DeepSpeed init
@@ -271,9 +281,19 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
 def train_step(model, optimizer, x, y, contrast_x=None, use_deepspeed=True, scaler=None):
     """Modified training step to handle contrastive learning"""
     try:
+        # Add explicit memory cleanup
+        torch.cuda.empty_cache()
+        
         batch_size = x.size(0)
         if batch_size == 0:
             return 0.0
+        
+        # Process in smaller chunks if needed
+        if x.size(1) > config.block_size:
+            x = x[:, :config.block_size]
+            y = y[:, :config.block_size]
+            if contrast_x is not None:
+                contrast_x = contrast_x[:, :config.block_size]
         
         if scaler is not None:
             with torch.amp.autocast('cuda', enabled=True):

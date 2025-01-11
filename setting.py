@@ -114,4 +114,4 @@ min_batch_size = DEFAULT_SETTINGS['min_batch_size']
 # Memory management
 memory_limit_mb = 24000  # 8GB limit
 min_batch_size = 1
-max_batch_size = 32
+max_batch_size = 16
