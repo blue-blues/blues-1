@@ -12,8 +12,8 @@ class BluesConfig:
     n_embd: int = 1024         # Reduced from 2048
     head_dim: int = 64         # Keep same for stability
     vocab_size: int = 100300   # Keep same for vocabulary coverage
-    block_size: int = 512      # Reduced from 1024
-    max_position_embeddings: int = 512  # Match block_size
+    block_size: int = 256      # Reduced from 1024
+    max_position_embeddings: int = 256  # Match block_size
     
     # Optimized MQA settings for medium-sized models
     num_key_value_heads: int = 4    # Reduced from 8
