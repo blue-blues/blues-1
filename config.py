@@ -8,7 +8,7 @@ import os
 class BluesConfig:
     # Model architecture for ~0.5B parameters
     n_layer: int = 24            # Reduced from 32
-    n_head: int = 16            # Reduced from 32
+    n_head: int = 8            # Reduced from 32
     n_embd: int = 1024         # Reduced from 2048
     head_dim: int = 64         # Keep same for stability
     vocab_size: int = 100300   # Keep same for vocabulary coverage
