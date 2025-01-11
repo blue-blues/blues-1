@@ -86,7 +86,7 @@ DEFAULT_SETTINGS = {
     },
 
     # Memory management
-    'memory_limit_mb': 4000,  # Reduced memory limit
+    'memory_limit_mb': 12000,  # Reduced memory limit
 }
 
 # Initialize all settings as module-level variables
@@ -112,6 +112,6 @@ max_grad_norm = DEFAULT_SETTINGS['max_grad_norm']
 min_batch_size = DEFAULT_SETTINGS['min_batch_size']
 
 # Memory management
-memory_limit_mb = 4000  # Reduced memory limit
+memory_limit_mb = 12000  # Reduced memory limit
 min_batch_size = 1
 max_batch_size = 4  # Reduced from 16

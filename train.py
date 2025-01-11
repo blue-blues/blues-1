@@ -298,7 +298,7 @@ def train_step(model, optimizer, x, y, contrast_x=None, use_deepspeed=True, scal
         
         # Use mixed precision
         if scaler is not None:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 logits, loss = model(x, y, contrast_x)
                 loss = loss / gradient_accumulation_steps
             scaler.scale(loss).backward()
