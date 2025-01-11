@@ -23,9 +23,9 @@ DEFAULT_SETTINGS = {
     'warmup_steps': 1000,
     'lr_decay_steps': 1000,
     'min_lr': 3e-5,
-    'gradient_accumulation_steps': 32,  # Increased from 4
+    'gradient_accumulation_steps': 64,  # Increased from 4
     'max_grad_norm': 1.0,
-    'min_batch_size': 4,
+    'min_batch_size': 2,
 
     # Data settings
     'dataset': "df_file.csv",
@@ -113,5 +113,5 @@ min_batch_size = DEFAULT_SETTINGS['min_batch_size']
 
 # Memory management
 memory_limit_mb = 12000  # 12GB limit
-min_batch_size = 2
+min_batch_size = 1
 max_batch_size = 32
