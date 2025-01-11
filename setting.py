@@ -15,7 +15,7 @@ DEFAULT_SETTINGS = {
     # Training settings
     'learning_rate': 3e-4,
     'dropout': 0.1,
-    'batch_size': 4,         # Increased from 1 due to smaller model
+    'batch_size': 1,         # Increased from 1 due to smaller model
     'weight_decay': 0.02,
     'max_iters': 50000,
     'eval_interval': 500,
