@@ -6,26 +6,29 @@ import os
 
 @dataclass
 class BluesConfig:
-    # Model architecture for ~0.5B parameters
-    n_layer: int = 24            # Reduced from 32
-    n_head: int = 8            # Reduced from 32
-    n_embd: int = 1024         # Reduced from 2048
-    head_dim: int = 64         # Keep same for stability
-    vocab_size: int = 100300   # Keep same for vocabulary coverage
-    block_size: int = 256      # Reduced from 1024
+    # Model architecture for lower memory usage
+    n_layer: int = 16            # Reduced from 24
+    n_head: int = 8             # Reduced from 8
+    n_embd: int = 768          # Reduced from 1024
+    head_dim: int = 64         # Keep same
+    vocab_size: int = 100300   # Keep same
+    block_size: int = 256      # Reduced from 256
     max_position_embeddings: int = 256  # Match block_size
     
-    # Optimized MQA settings for medium-sized models
-    num_key_value_heads: int = 4    # Reduced from 8
+    # Memory-efficient MQA settings
+    num_key_value_heads: int = 2    # Reduced from 4
     num_key_value_groups: int = n_head // num_key_value_heads
     
     # RMSNorm settings
     rms_norm_eps: float = 1e-5
     use_scale: bool = True
     
-    # Enhanced MoE settings for better scaling
-    tot_num_experts: int = 4       # Reduced from 16
-    chosen_num_experts: int = 2      # Using 2 experts per token
+    # Reduced MoE settings
+    tot_num_experts: int = 4
+    num_experts: int = 4
+    expert_capacity: int = 4     # Reduced from 8
+    chosen_num_experts: int = 1   # Use single expert
+    expert_ffn_size: int = None  # Will be 2 * hidden_size instead of 4
     embedding_multiplier_scale: int = 4  # Increased for better capacity
     noise_std: float = 0.1          # Reduced noise for stability
     lambadada: float = 0.005        # Reduced MoE loss coefficient
@@ -98,10 +101,7 @@ class BluesConfig:
     gradient_checkpointing: bool = True  # Enable by default
     
     # Expert settings
-    num_experts: int = 4           # Match tot_num_experts
-    expert_capacity: int = 8       # Reduced from 32
     moe_layers: list = None
-    expert_ffn_size: int = None     # Will be 4 * hidden_size in post_init
     top_k: int = 2                  # Keep top 2 experts
     use_moe: bool = True            # Enable MoE by default
     
@@ -147,9 +147,9 @@ class BluesConfig:
         assert self.chosen_num_experts <= self.tot_num_experts, \
             "Chosen experts must be less than or equal to total experts"
         
-        # Set expert FFN size if not explicitly specified
+        # Set smaller expert FFN size
         if self.expert_ffn_size is None:
-            self.expert_ffn_size = 4 * self.hidden_size
+            self.expert_ffn_size = 2 * self.hidden_size  # Reduced multiplier
             
         # Verify MoE settings
         assert self.top_k <= self.num_experts, \

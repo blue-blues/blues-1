@@ -23,14 +23,14 @@ DEFAULT_SETTINGS = {
     'warmup_steps': 1000,
     'lr_decay_steps': 1000,
     'min_lr': 3e-5,
-    'gradient_accumulation_steps': 32,  # Reduced from 64
+    'gradient_accumulation_steps': 128,  # Increased accumulation
     'max_grad_norm': 1.0,
     'min_batch_size': 1,
 
     # Data settings
     'dataset': "df_file.csv",
     'data_cache_dir': "data_cache",
-    'chunk_size': 10000,        # Reduced from 1000
+    'chunk_size': 1000,        # Reduced chunk size
     'chunk_memory_limit': 256 * 1024 * 1024,  # 256MB per chunk
     'verify_data_loading': True,
     'checkpoint_dir': "checkpoints",
@@ -64,7 +64,7 @@ DEFAULT_SETTINGS = {
             'end_token': '<|end|>',
             'pad_token': '<|pad|>',
         },
-        'max_seq_length': 512,  # Reduced from 2048
+        'max_seq_length': 256,  # Reduced from 2048
         'add_special_tokens': True,
     },
 
@@ -73,7 +73,7 @@ DEFAULT_SETTINGS = {
         'use_flash_attn': True,
         'mem_efficient': True,
         'enable_tiling': True,
-        'tile_size': 128,     # Increased from 64
+        'tile_size': 32,     # Reduced tile size
         'use_cuda_fp16': True,
     },
 
@@ -86,7 +86,7 @@ DEFAULT_SETTINGS = {
     },
 
     # Memory management
-    'memory_limit_mb': 8000,  # Reduced memory limit
+    'memory_limit_mb': 4000,  # Reduced memory limit
 }
 
 # Initialize all settings as module-level variables
@@ -112,6 +112,6 @@ max_grad_norm = DEFAULT_SETTINGS['max_grad_norm']
 min_batch_size = DEFAULT_SETTINGS['min_batch_size']
 
 # Memory management
-memory_limit_mb = 24000  # 8GB limit
+memory_limit_mb = 4000  # Reduced memory limit
 min_batch_size = 1
-max_batch_size = 16
+max_batch_size = 4  # Reduced from 16

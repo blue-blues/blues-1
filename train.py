@@ -281,22 +281,24 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
 def train_step(model, optimizer, x, y, contrast_x=None, use_deepspeed=True, scaler=None):
     """Modified training step to handle contrastive learning"""
     try:
-        # Add explicit memory cleanup
+        # Add memory optimization
         torch.cuda.empty_cache()
         
-        batch_size = x.size(0)
-        if batch_size == 0:
-            return 0.0
-        
-        # Process in smaller chunks if needed
-        if x.size(1) > config.block_size:
-            x = x[:, :config.block_size]
-            y = y[:, :config.block_size]
+        # Process in smaller chunks
+        max_len = min(config.block_size, 128)  # Further limit sequence length
+        if x.size(1) > max_len:
+            x = x[:, :max_len]
+            y = y[:, :max_len]
             if contrast_x is not None:
-                contrast_x = contrast_x[:, :config.block_size]
+                contrast_x = contrast_x[:, :max_len]
         
+        # Enable gradient checkpointing for memory efficiency
+        if hasattr(model, 'gradient_checkpointing_enable'):
+            model.gradient_checkpointing_enable()
+        
+        # Use mixed precision
         if scaler is not None:
-            with torch.amp.autocast('cuda', enabled=True):
+            with torch.cuda.amp.autocast():
                 logits, loss = model(x, y, contrast_x)
                 loss = loss / gradient_accumulation_steps
             scaler.scale(loss).backward()
@@ -305,13 +307,15 @@ def train_step(model, optimizer, x, y, contrast_x=None, use_deepspeed=True, scal
             loss = loss / gradient_accumulation_steps
             loss.backward()
         
+        # Clear memory after backward pass
+        del logits
+        torch.cuda.empty_cache()
+        
         return loss.item() if loss is not None else 0.0
         
     except Exception as e:
         print(f"Error in train_step: {str(e)}")
-        # Add stack trace for debugging if needed
-        import traceback
-        traceback.print_exc()
+        torch.cuda.empty_cache()  # Clear memory on error
         raise e
 
 def get_contrastive_batch(batch_x, model, device):
