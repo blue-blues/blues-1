@@ -45,8 +45,16 @@ def verify_gpu_requirements():
             try:
                 import deepspeed
                 requirements['deepspeed'] = True
+                if hasattr(deepspeed, 'zero'):
+                    print("DeepSpeed Zero-3 available")
+                    # Check CPU RAM
+                    import psutil
+                    ram_gb = psutil.virtual_memory().total / (1024**3)
+                    print(f"Available RAM: {ram_gb:.1f}GB")
+                    if ram_gb < 32:
+                        print("Warning: Less than 32GB RAM available. Zero-3 offload may be slow.")
             except ImportError:
-                print("DeepSpeed not available. Using standard training.")
+                print("DeepSpeed not available or Zero-3 not supported")
             
             print("\nGPU Configuration:")
             print(f"CUDA Version: {requirements['cuda_version']}")
@@ -189,19 +197,35 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
     
     if use_deepspeed:
         try:
+            import deepspeed
+            # Initialize process group early for Zero-3
+            deepspeed.init_distributed()
+            
             # Check available GPU memory before DeepSpeed init
             free_memory = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
             if free_memory < 2 * 1024 * 1024 * 1024:  # Less than 2GB free
                 print("Warning: Low GPU memory, falling back to standard training")
                 raise RuntimeError("Insufficient GPU memory for DeepSpeed")
 
-            import deepspeed
-            # Set NCCL timeout to avoid hanging
-            os.environ['NCCL_TIMEOUT'] = '30'  # 30 minutes
-            os.environ['NCCL_BLOCKING_WAIT'] = '1'
-            
             with open('ds_config.json') as f:
                 ds_config = json.load(f)
+            
+            # Ensure Zero-3 specific settings
+            if ds_config['zero_optimization']['stage'] == 3:
+                # Add Zero-3 specific model preparation
+                model.train()  # Ensure model is in training mode for Zero init
+                model = model.float()  # Ensure fp32 before Zero-3 init
+                
+                # Initialize DeepSpeed with Zero-3
+                model_engine, optimizer, _, _ = deepspeed.initialize(
+                    args=None,
+                    model=model,
+                    model_parameters=model.parameters(),
+                    config=ds_config
+                )
+                
+                print("Successfully initialized DeepSpeed Zero-3")
+                return model_engine, optimizer, start_iter, best_loss
             
             # Modify DeepSpeed config based on available memory
             ds_config['zero_optimization']['stage'] = 2  # Use more conservative setting
