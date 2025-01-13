@@ -1,6 +1,7 @@
 {
-    "train_batch_size": 32,
-    "gradient_accumulation_steps": 8,
+    "train_batch_size": 64,  // Increased for multi-GPU
+    "train_micro_batch_size_per_gpu": 32,  // Added for per-GPU batch size
+    "gradient_accumulation_steps": 4,  // Adjusted for multi-GPU
     "steps_per_print": 100,
     "zero_optimization": {
         "stage": 3,
@@ -49,5 +50,9 @@
         }
     },
     "gradient_clipping": 1.0,
-    "wall_clock_breakdown": false
+    "wall_clock_breakdown": false,
+    "distributed": {
+        "distributed_backend": "nccl",
+        "find_unused_parameters": false
+    }
 }

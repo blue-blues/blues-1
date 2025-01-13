@@ -11,10 +11,17 @@ from tqdm import tqdm
 from optimize import optimize_model_for_training, MemoryOptimizer
 from utils.memory import MemoryManager, efficient_tensor_handling, estimate_memory_usage
 from utils.model_utils import estimate_loss  # Add this import
-
+import argparse
 
 # Define the tokenizer
 tokenizer = encoder
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--local_rank', type=int, default=-1)
+    parser.add_argument('--deepspeed', action='store_true')
+    parser.add_argument('--deepspeed_config', type=str, default='ds_config.json')
+    return parser.parse_args()
 
 def verify_gpu_requirements():
     """Verify GPU requirements and available optimizations"""
@@ -119,6 +126,7 @@ def verify_checkpoint(checkpoint_path):
 
 def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
     """Setup training with configurable GPU and DeepSpeed support and checkpoint resuming"""
+    args = parse_args()
     # Verify GPU requirements first
     gpu_check = verify_gpu_requirements()
     device = torch.device('cuda' if use_gpu and torch.cuda.is_available() else 'cpu')
@@ -198,8 +206,12 @@ def setup_training(use_gpu=True, use_deepspeed=True, resume_from=None):
     if use_deepspeed:
         try:
             import deepspeed
-            # Initialize process group early for Zero-3
+            # Initialize distributed
             deepspeed.init_distributed()
+            
+            # Update local device
+            device = torch.device(f'cuda:{args.local_rank}')
+            torch.cuda.set_device(device)
             
             # Check available GPU memory before DeepSpeed init
             free_memory = torch.cuda.memory_reserved(0) - torch.cuda.memory_allocated(0)
@@ -504,6 +516,7 @@ class TrainingLogger:
         return False
 
 def main():
+    args = parse_args()
     # Check for preprocessed data before starting training
     if not verify_data_cache():
         exit(1)
