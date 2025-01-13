@@ -257,76 +257,29 @@ class ExpertLayer(nn.Module):
         return x
 
 from expert_pruning import DynamicExpertPruning
+from expert_system import EnhancedMoELayer
 
 class MoELayer(nn.Module):
     def __init__(self, config):
         super().__init__()
-        # Use consistent configuration parameters
-        self.num_experts = config.num_experts
-        self.input_size = config.hidden_size  # Use hidden_size instead of n_embd
-        self.hidden_size = config.hidden_size
-        self.expert_hidden_size = config.expert_ffn_size
-        self.top_k = config.top_k
+        self.enhanced_moe = EnhancedMoELayer(config)
+        self.step = 0
+        self.total_steps = config.total_training_steps
         
-        # Router
-        self.router = Router(self.input_size, self.num_experts, self.top_k)
+    def forward(self, x: torch.Tensor, training: bool = False) -> torch.Tensor:
+        if training:
+            self.step += 1
+            # Update router temperature
+            self.enhanced_moe.router.anneal_temperature(self.step, self.total_steps)
         
-        # Experts
-        self.experts = nn.ModuleList([
-            Expert(self.hidden_size, self.expert_hidden_size) 
-            for _ in range(self.num_experts)
-        ])
+        # Forward pass through enhanced MoE
+        outputs, metrics = self.enhanced_moe(x, self.step)
         
-        self.dropout = nn.Dropout(config.dropout)
-        self.layer_norm = nn.LayerNorm(self.hidden_size)
-
-        # Initialize expert pruning with fallback values
-        enable_pruning = getattr(config, 'enable_expert_pruning', False)
-        self.expert_pruning = DynamicExpertPruning(config) if enable_pruning else None
-        self.training_step = 0
-
-    def forward(self, x, training=False):  # Add training parameter
-        identity = x
-        x = self.layer_norm(x)
+        # Update router thresholds periodically during training
+        if training and self.step % 100 == 0:
+            self.enhanced_moe.router.update_thresholds(self.enhanced_moe.metrics)
         
-        # Get routing weights and expert assignments
-        router_mask, expert_indices = self.router(x)
-        
-        # Process input through experts
-        expert_outputs = torch.zeros_like(x)
-        for i in range(self.num_experts):
-            expert_mask = router_mask[:, :, i].unsqueeze(-1)
-            if expert_mask.any():
-                # Skip pruned experts
-                if self.expert_pruning and i in self.expert_pruning.state.pruned_experts:
-                    continue
-                expert_output = self.experts[i](x)
-                expert_outputs += expert_output * expert_mask
-        
-        # Update expert pruning statistics
-        if self.expert_pruning is not None and training:
-            self.expert_pruning.update(expert_indices, router_mask)
-            self.expert_pruning.apply_to_parameters(self.experts)
-            self.training_step += 1
-        
-        output = self.dropout(expert_outputs)
-        return output + identity, router_mask
-
-    def get_pruning_stats(self):
-        """Get expert pruning statistics"""
-        if self.expert_pruning is not None:
-            return self.expert_pruning.get_expert_stats()
-        return None
-
-    def save_pruning_state(self, checkpoint):
-        """Save pruning state to checkpoint"""
-        if self.expert_pruning is not None:
-            checkpoint['pruning_state'] = self.expert_pruning.get_state_dict()
-
-    def load_pruning_state(self, checkpoint):
-        """Load pruning state from checkpoint"""
-        if self.expert_pruning is not None and 'pruning_state' in checkpoint:
-            self.expert_pruning.load_state_dict(checkpoint['pruning_state'])
+        return outputs, metrics['routing_weights']
 
 def load_balancing_loss(router_mask):
     """Calculate load balancing loss for expert routing"""
