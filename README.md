@@ -1,6 +1,6 @@
-# Blues-01: MoE Language Model
+# Blues Language Model
 
-A PyTorch implementation of a Mixture of Experts (MoE) language model with multi-query attention and efficient memory management.
+A distributed language model training implementation with DeepSpeed ZeRO-3 optimization.
 
 ## Features
 
@@ -12,6 +12,71 @@ A PyTorch implementation of a Mixture of Experts (MoE) language model with multi
 - Automatic mixed precision training
 - DeepSpeed integration for distributed training
 - Dynamic batch sizing based on available memory
+
+## Requirements
+
+- Python 3.8+
+- PyTorch 2.0+
+- CUDA 11.7+
+- 2+ NVIDIA GPUs
+- DeepSpeed
+- Flash Attention 2 (optional)
+
+```bash
+pip install torch deepspeed flash-attn
+```
+
+## Hardware Requirements
+
+- Minimum: 2x GPUs with 8GB VRAM each
+- Recommended: 2x GPUs with 24GB+ VRAM each
+- RAM: 32GB+ recommended for ZeRO-3 CPU offloading
+
+## Quick Start
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd blues-1-blue-blue-0.1
+```
+
+2. Preprocess the data:
+```bash
+python data.py
+```
+
+3. Launch distributed training:
+```bash
+python launch.py
+```
+
+Or using torch's distributed launch:
+```bash
+python -m torch.distributed.launch --nproc_per_node=2 train.py --deepspeed --deepspeed_config ds_config.json
+```
+
+## Configuration
+
+### DeepSpeed Settings
+- ZeRO-3 optimization with CPU offloading
+- Automatic micro-batch size adjustment
+- Mixed precision training
+- Gradient accumulation
+- Distributed training across multiple GPUs
+
+Edit `ds_config.json` to modify training parameters:
+- `train_batch_size`: Global batch size
+- `train_micro_batch_size_per_gpu`: Per-GPU batch size
+- `gradient_accumulation_steps`: Number of gradient accumulation steps
+- `zero_optimization`: ZeRO-3 settings and offloading configuration
+
+### Model Settings
+Edit `setting.py` to modify model parameters:
+- Learning rate
+- Dropout
+- Memory optimization
+- Tokenizer configuration
+- Flash Attention settings
 
 ## Model Architecture
 
@@ -41,6 +106,37 @@ config = BluesConfig(
     block_size=512          # Maximum sequence length
 )
 ```
+
+## Directory Structure
+
+```
+blues-1-blue-blue-0.1/
+├── train.py           # Main training script
+├── launch.py         # Multi-GPU launcher
+├── ds_config.json    # DeepSpeed configuration
+├── model.py          # Model architecture
+├── setting.py        # Training settings
+├── data.py           # Data preprocessing
+├── config.py         # Model configuration
+└── utils/            # Utility functions
+```
+
+## Checkpoints
+
+Checkpoints are saved in the `checkpoints` directory:
+- `best_model.pt`: Best model based on validation loss
+- `latest.pt`: Latest training state
+- `interrupted.pt`: Saved on training interruption
+- `final_model.pt`: Final model after training completion
+
+## Memory Management
+
+The implementation includes several memory optimization features:
+- Gradient checkpointing
+- ZeRO-3 optimization
+- CPU offloading
+- Dynamic batch size adjustment
+- Memory-efficient attention (optional Flash Attention)
 
 ## TODO List & Implementation Roadmap
 
@@ -184,95 +280,6 @@ config = BluesConfig(
 - Reduce memory footprint
 
 ## Training
-=======
-## Installation
-=======
-## TODO List & Implementation Status
-
-### Completed Features ✅
-- [x] Basic model architecture implementation
-- [x] Multi-Query Attention (MQA) support
-- [x] Basic Mixture of Experts (MoE) system
-- [x] Flash Attention integration
-- [x] Gradient checkpointing
-- [x] Basic contrastive learning
-- [x] Dynamic batch sizing
-- [x] Memory-efficient attention
-
-### In Progress 🚧
-- [ ] Contrastive Learning Improvements
-  - [x] Basic pairwise contrastive loss
-  - [x] Token replacement strategy
-  - [ ] Multiple positive examples support
-  - [ ] Better augmentation strategies
-  - [ ] Improved similarity metrics
-
-- [ ] Expert System Enhancements
-  - [x] Basic expert routing
-  - [ ] Dynamic expert pruning
-  - [ ] Load balancing optimization
-  - [ ] Expert specialization tracking
-  - [ ] Adaptive routing thresholds
-
-### Upcoming Features 📅
-- [ ] Advanced Memory Management
-  - [ ] KV cache implementation
-  - [ ] Quantized cache storage
-  - [ ] Smart memory swapping
-  - [ ] Cache compression
-
-- [ ] Position Understanding
-  - [ ] Dynamic RoPE scaling
-  - [ ] NTK-aware position embeddings
-  - [ ] Extended context support
-  - [ ] Position aliasing reduction
-
-- [ ] Model Optimization
-  - [ ] Flash Attention V2 upgrade
-  - [ ] Model quantization
-  - [ ] Better checkpoint management
-  - [ ] Custom CUDA kernels
-
-- [ ] Training Improvements
-  - [ ] Progressive learning rates
-  - [ ] Custom loss functions
-  - [ ] Better error recovery
-  - [ ] Training metrics dashboard
-
-### Priority Matrix
-
-| Feature | Impact | Difficulty | Priority |
-|---------|---------|------------|-----------|
-| Contrastive Improvement | High | Medium | 1 |
-| Memory Management | High | High | 2 |
-| Expert Enhancement | High | Medium | 3 |
-| Position System | Medium | Medium | 4 |
-| Flash Attn V2 | High | Low | 5 |
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/blue-blues/blues-1
-cd blues-moe
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-## Requirements
-
-- Python 3.8+
-- PyTorch 2.0.0+
-- flash-attn (optional, for GPU acceleration)
-- deepspeed (optional, for distributed training)
-- einops
-- triton
-- tiktoken
-
-## Usage
 
 ### Training
 
